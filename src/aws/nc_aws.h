@@ -15,4 +15,4 @@ void get_aws_bucket_list(void);
 }
 #endif
 
-#endif /* __NC_AWS_H__ */
+#endif /* _NC_AWS_H_ */

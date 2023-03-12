@@ -424,6 +424,7 @@ redis_error(const struct msg *r)
 void
 redis_parse_req(struct msg *r)
 {
+    loga("[nc_redis.redis_parse_req] Start");
     struct mbuf *b;
     uint8_t *p, *m;
     uint8_t ch;
@@ -1964,6 +1965,7 @@ error:
 void
 redis_parse_rsp(struct msg *r)
 {
+    loga("[nc_redis.redis_parse_rsp] Start");
     struct mbuf *b;
     uint8_t *p, *m;
     uint8_t ch;

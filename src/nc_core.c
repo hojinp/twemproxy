@@ -310,6 +310,14 @@ core_timeout(struct context *ctx)
 rstatus_t
 core_core(void *arg, uint32_t events)
 {
+    loga("[core_core] Start!! events: %" PRIu32 "", events);
+    if (events & EVENT_READ) {
+        loga("[core_core] core_recv");
+    }
+    if (events & EVENT_WRITE) {
+        loga("[core_core] core_send");
+    }
+
     rstatus_t status;
     struct conn *conn = arg;
     struct context *ctx;

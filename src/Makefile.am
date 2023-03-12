@@ -24,7 +24,7 @@ AM_CFLAGS += -std=c11
 
 AM_LDFLAGS =
 AM_LDFLAGS += -lm -lpthread -rdynamic
-AM_LDFLAGS += -lstdc++ -laws-cpp-sdk-s3 -laws-cpp-sdk-core -lcurl -lssl -lcrypto -laws-crt-cpp 
+AM_LDFLAGS += -lstdc++ -laws-cpp-sdk-s3 -laws-cpp-sdk-core
 if OS_SOLARIS
 AM_LDFLAGS += -lnsl -lsocket
 endif

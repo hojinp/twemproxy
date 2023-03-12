@@ -341,6 +341,7 @@ conn_recv(struct conn *conn, void *buf, size_t size)
 
     for (;;) {
         n = nc_read(conn->sd, buf, size);
+        loga("[conn_recv] after nc_read, print buf char array\n%.*s", (int) n, (char *) buf);
 
         log_debug(LOG_VERB, "recv on sd %d %zd of %zu", conn->sd, n, size);
 
@@ -391,6 +392,8 @@ conn_sendv(struct conn *conn, const struct array *sendv, size_t nsend)
 
     for (;;) {
         n = nc_writev(conn->sd, sendv->elem, sendv->nelem);
+        loga("sendv on sd %d %zd of %zu in %"PRIu32" buffers", conn->sd, n, nsend, sendv->nelem);
+        loga("sendv->elem:\n%.*s", (int) ((struct iovec *) sendv->elem)->iov_len, (char *) ((struct iovec *) sendv->elem)->iov_base);
 
         log_debug(LOG_VERB, "sendv on sd %d %zd of %zu in %"PRIu32" buffers",
                   conn->sd, n, nsend, sendv->nelem);

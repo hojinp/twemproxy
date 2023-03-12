@@ -302,6 +302,12 @@ struct msg {
     unsigned             redis:1;         /* redis? */
 };
 
+struct macaron_ctx {
+    struct context *ctx;
+    struct conn *conn;
+    struct msg *msg;
+};
+
 TAILQ_HEAD(msg_tqh, msg);
 
 struct msg *msg_tmo_min(void);

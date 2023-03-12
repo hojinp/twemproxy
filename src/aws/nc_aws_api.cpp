@@ -28,12 +28,7 @@ void deinit_aws_sdk() {
 void get_aws_bucket_list() {
     std::cout << "[getAwsBucketList] Start\n" << std::flush;
 
-    Aws::Client::ClientConfiguration clientConfig;
-    clientConfig.proxyHost = "proxy.pdl.cmu.edu";
-    clientConfig.proxyPort = 3128;
-    clientConfig.proxyScheme = Aws::Http::Scheme::HTTP;
-
-    Aws::S3::S3Client aws_s3_client(clientConfig);
+    Aws::S3::S3Client aws_s3_client;
     auto outcome = aws_s3_client.ListBuckets();
     if (outcome.IsSuccess()) {
         std::cout << "Found " << outcome.GetResult().GetBuckets().size() << " buckets\n" << std::flush;

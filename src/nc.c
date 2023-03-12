@@ -28,6 +28,8 @@
 #include <nc_conf.h>
 #include <nc_signal.h>
 
+#include <aws/nc_aws.h>
+
 #define NC_CONF_PATH        "conf/nutcracker.yml"
 
 #define NC_LOG_DEFAULT      LOG_NOTICE
@@ -497,6 +499,10 @@ nc_pre_run(struct instance *nci)
 
     nc_print_run(nci);
 
+    loga("Before initializing AWS SDK c++");
+    init_aws_sdk();
+    loga("Successfully initialized AWS SDK c++");
+
     return NC_OK;
 }
 
@@ -512,6 +518,8 @@ nc_post_run(struct instance *nci)
     nc_print_done();
 
     log_deinit();
+
+    deinit_aws_sdk();
 }
 
 static void

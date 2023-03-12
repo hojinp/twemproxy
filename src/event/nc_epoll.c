@@ -233,6 +233,7 @@ event_del_conn(struct event_base *evb, struct conn *c)
 int
 event_wait(struct event_base *evb, int timeout)
 {
+    loga("[event_wait] Timeout: %d", timeout);
     int ep = evb->ep;
     struct epoll_event *event = evb->event;
     int nevent = evb->nevent;
@@ -245,10 +246,12 @@ event_wait(struct event_base *evb, int timeout)
         int i, nsd;
 
         nsd = epoll_wait(ep, event, nevent, timeout);
+        loga("[epoll_wait] nsd = %d", nsd);
         if (nsd > 0) {
             for (i = 0; i < nsd; i++) {
                 struct epoll_event *ev = &evb->event[i];
                 uint32_t events = 0;
+                loga("Socket descriptor used for this epoll: %d", ((struct conn *) ev->data.ptr)->sd);
 
                 log_debug(LOG_VVERB, "epoll %04"PRIX32" triggered on conn %p",
                           ev->events, ev->data.ptr);

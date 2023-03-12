@@ -23,6 +23,8 @@
 #include <nc_core.h>
 #include <nc_server.h>
 #include <proto/nc_proto.h>
+#include <aws/nc_aws.h>
+
 
 #if (IOV_MAX > 128)
 #define NC_IOV_MAX 128
@@ -581,6 +583,9 @@ msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
     mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
     if (msg->pos == mbuf->last) {
         /* no more data to parse */
+        if (!conn->client) {
+            loga("[nc_message.msg_parsed] No more data to parse");
+        }
         conn->recv_done(ctx, conn, msg, NULL);
         return NC_OK;
     }
@@ -698,6 +703,14 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     msg->mlen += (uint32_t)n;
 
     for (;;) {
+        if (conn->proxy) {
+            // Do nothing
+        } if (!conn->client) {
+            loga("[nc_message.msg_rcv_chain] Server: For loop");
+        } else {
+            loga("[nc_message.msg_rcv_chain] Client: For loop");
+        }
+
         status = msg_parse(ctx, conn, msg);
         if (status != NC_OK) {
             return status;
@@ -719,6 +732,7 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
 rstatus_t
 msg_recv(struct context *ctx, struct conn *conn)
 {
+    loga("[nc_message.msg_recv] received message");
     rstatus_t status;
     struct msg *msg;
 
@@ -740,6 +754,119 @@ msg_recv(struct context *ctx, struct conn *conn)
     return NC_OK;
 }
 
+
+static void *
+try_get_data_from_osc(void *mctx_arg) {
+    loga("[try_get_data_from_osc] Started");
+
+    get_aws_bucket_list();
+
+    struct macaron_ctx *mctx = (struct macaron_ctx *) mctx_arg;
+    struct context *ctx = mctx->ctx;
+    struct conn *conn = mctx->conn;
+    struct msg *msg = mctx->msg;
+
+    struct mbuf *mbuf, *nbuf;            /* current and next mbuf */
+    size_t mlen;                         /* current mbuf data length */
+    struct iovec *ciov, iov[NC_IOV_MAX]; /* current iovec */
+    struct array sendv;                  /* send iovec */
+    size_t nsend, nsent;                 /* bytes to send; bytes sent */
+    size_t limit;                        /* bytes to send limit */
+    ssize_t n;                           /* bytes sent by sendv */
+
+    array_set(&sendv, iov, sizeof(iov[0]), NC_IOV_MAX);
+
+    /* preprocess - build iovec */
+
+    nsend = 0;
+    /*
+     * readv() and writev() returns EINVAL if the sum of the iov_len values
+     * overflows an ssize_t value Or, the vector count iovcnt is less than
+     * zero or greater than the permitted maximum.
+     */
+    limit = SSIZE_MAX;
+
+    loga("conn->sd: %d", conn->sd);
+    loga("msg->mlen: %d", msg->mlen);
+    //loga("ocnn->smsg->mlen: %d", conn->smsg->mlen);
+    //ASSERT(conn->smsg == msg);
+
+    for (mbuf = STAILQ_FIRST(&msg->mhdr);
+         mbuf != NULL && array_n(&sendv) < NC_IOV_MAX && nsend < limit;
+         mbuf = nbuf) {
+        nbuf = STAILQ_NEXT(mbuf, next);
+
+        if (mbuf_empty(mbuf)) {
+            continue;
+        }
+
+        mlen = mbuf_length(mbuf);
+        if ((nsend + mlen) > limit) {
+            mlen = limit - nsend;
+        }
+
+        ciov = array_push(&sendv);
+        ciov->iov_base = mbuf->pos;
+        ciov->iov_len = mlen;
+
+        nsend += mlen;
+    }
+    loga("[msg_send_chain] nsend: %zu", nsend);
+
+    /*
+     * (nsend == 0) is possible in redis multi-del
+     * see PR: https://github.com/twitter/twemproxy/pull/225
+     */
+    conn->smsg = NULL;
+    if (nsend != 0) {
+        n = conn_sendv(conn, &sendv, nsend);
+    } else {
+        n = 0;
+    }
+
+    nsent = n > 0 ? (size_t)n : 0;
+
+    /* postprocess - process sent messages in send_msgq */
+
+    if (nsent == 0) {
+        if (msg->mlen == 0) {
+            conn->send_done(ctx, conn, msg);
+        }
+        nc_free(mctx);
+        return NULL; /* Macaron TODO: deal with error */
+    }
+
+    /* adjust mbufs of the sent message */
+    for (mbuf = STAILQ_FIRST(&msg->mhdr); mbuf != NULL; mbuf = nbuf) {
+        nbuf = STAILQ_NEXT(mbuf, next);
+
+        if (mbuf_empty(mbuf)) {
+            continue;
+        }
+
+        mlen = mbuf_length(mbuf);
+        if (nsent < mlen) {
+            /* mbuf was sent partially; process remaining bytes later */
+            mbuf->pos += nsent;
+            ASSERT(mbuf->pos < mbuf->last);
+            nsent = 0;
+            break;
+        }
+
+        /* mbuf was sent completely; mark it empty */
+        mbuf->pos = mbuf->last;
+        nsent -= mlen;
+    }
+
+    /* message has been sent completely, finalize it */
+    if (mbuf == NULL) {
+        conn->send_done(ctx, conn, msg);
+    }
+    nc_free(mctx);
+    return NULL; /* Macaron TODO: deal with error */
+}
+
+
 static rstatus_t
 msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
 {
@@ -752,6 +879,45 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     size_t nsend, nsent;                 /* bytes to send; bytes sent */
     size_t limit;                        /* bytes to send limit */
     ssize_t n;                           /* bytes sent by sendv */
+
+
+    struct mbuf *xbuf;                   /* mbuf to be used for "$-1" checker (Macaron) */
+    pthread_t thread_id;                 /* thread id to be used for reaching out OSC/ROS */
+    struct macaron_ctx *mctx;            /* macaron_ctx that have data of related information */
+    
+    /* Macaron: if there is no data in the memcached server, reach out to the local/remote object storage */
+    if (msg != NULL && msg->peer != NULL && msg->peer->owner != NULL) {
+        loga("[nc_message.msg_send_chain] msg->peer->owner->sd = %d", msg->peer->owner->sd);
+        loga("[nc_message.msg_send_chain] msg->mlen = %d", msg->mlen);
+        loga("[nc_message.msg_send_chain] msg->peer->mlen = %d", msg->peer->mlen);
+        ASSERT(msg->redis);    /* We implemented Macaron for only Redis */
+        if (msg->mlen == 5 && msg->peer->mlen > 11) {
+            xbuf = STAILQ_FIRST(&msg->mhdr);
+            if ((char) xbuf->start[0] == '$' && (char) xbuf->start[1] == '-' && (char) xbuf->start[2] == '1') {
+                xbuf = STAILQ_FIRST(&msg->peer->mhdr);
+                // for (int i = 0; i < msg->peer->mlen; i++)
+                //     loga("%d %c", i, (char) xbuf->start[i]);
+                if ((char) xbuf->start[8] == 'g' && (char) xbuf->start[9] == 'e' && (char) xbuf->start[10] == 't') {
+                    loga("[msg_send_chain] Failed to retrieve data: no such data is in the Redis server.");
+                    mctx = nc_alloc(sizeof(*mctx));
+                    mctx->ctx = ctx;
+                    mctx->conn = conn;
+                    mctx->msg = msg;
+                    //try_get_data_from_osc(mctx);
+                    //return NC_OK;
+                    int ret = pthread_create(&thread_id, NULL, try_get_data_from_osc, mctx);
+                    if (ret == 0) {
+                        loga("[try_get_data_from_osc] NC_OK");
+                        return NC_OK;
+                    } else {
+                        loga("[try_get_data_from_osc] NC_ERROR");
+                        nc_free(mctx);
+                        return NC_ERROR;
+                    }
+                }
+            }
+        }
+    }
 
     TAILQ_INIT(&send_msgq);
 
