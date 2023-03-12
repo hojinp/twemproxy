@@ -20,9 +20,11 @@ AM_CFLAGS += -Wno-unused-parameter -Wno-unused-value
 AM_CFLAGS += -Wconversion -Wsign-compare
 AM_CFLAGS += -Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls -Wmissing-declarations
 AM_CFLAGS += -Wno-format-zero-length
+AM_CFLAGS += -std=c11
 
 AM_LDFLAGS =
 AM_LDFLAGS += -lm -lpthread -rdynamic
+AM_LDFLAGS += -lstdc++ -laws-cpp-sdk-s3 -laws-cpp-sdk-core -lcurl -lssl -lcrypto -laws-crt-cpp 
 if OS_SOLARIS
 AM_LDFLAGS += -lnsl -lsocket
 endif
@@ -36,6 +38,7 @@ sbin_PROGRAMS = nutcracker
 
 nutcracker_SOURCES =			\
 	nc_core.c nc_core.h		\
+	aws/nc_aws_api.cpp aws/nc_aws.h \
 	nc_connection.c nc_connection.h	\
 	nc_client.c nc_client.h		\
 	nc_server.c nc_server.h		\
@@ -65,6 +68,7 @@ bin_PROGRAMS = test_all
 
 test_all_SOURCES = test_all.c \
 	nc_core.c nc_core.h		\
+	aws/nc_aws_api.cpp aws/nc_aws.h \
 	nc_connection.c nc_connection.h	\
 	nc_client.c nc_client.h		\
 	nc_server.c nc_server.h		\
