@@ -140,7 +140,7 @@ int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len) {
         (*new_msg)[0] = '$';
         (*new_msg)[*new_msg_len] = '\0';
         offset += 1;
-        snprintf((*new_msg) + offset, *new_msg_len, "%d", value_str_len);
+        snprintf((*new_msg) + offset, *new_msg_len, "%d", n);
         offset += value_str_len;
         (*new_msg)[offset] = '\r';
         (*new_msg)[offset + 1] = '\n';
@@ -151,7 +151,7 @@ int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len) {
         (*new_msg)[offset + 1] = '\n';
         offset += 2;
         assert(offset == *new_msg_len);
-        std::cout << "[aws_get_data_from_datalake] new msg: " << *new_msg << std::flush;
+        std::cout << "[aws_get_data_from_datalake] new msg: " << *new_msg << "\n" << std::flush;
         std::cout << "[aws_get_data_from_datalake] Size retrieved from S3: " << n << " bytes\n"
                   << std::flush;
         std::cout << "[aws_get_data_from_datalake] Retrieved data from S3:\n"

@@ -33,7 +33,7 @@
     RSP_STRING( DEFINE_ACTION )
 #undef DEFINE_ACTION
 
-#define REDIS_MAX_KEY_LENGTH 10
+#define REDIS_MAX_KEY_LENGTH 32
 
 static rstatus_t redis_handle_auth_req(struct msg *request, struct msg *response);
 
