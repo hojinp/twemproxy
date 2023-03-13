@@ -15,17 +15,14 @@
  * limitations under the License.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-
-#include <sys/uio.h>
-
+#include <aws/nc_aws.h>
 #include <nc_core.h>
 #include <nc_server.h>
-#include <proto/nc_proto.h>
-#include <aws/nc_aws.h>
 #include <oscm/nc_oscm.h>
-
+#include <proto/nc_proto.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/uio.h>
 
 #if (IOV_MAX > 128)
 #define NC_IOV_MAX 128
@@ -121,14 +118,12 @@ static struct rbnode tmo_rbs;    /* timeout rbtree sentinel */
 
 #define DEFINE_ACTION(_name) string(#_name),
 static const struct string msg_type_strings[] = {
-    MSG_TYPE_CODEC( DEFINE_ACTION )
-    null_string
-};
+    MSG_TYPE_CODEC(DEFINE_ACTION)
+        null_string};
 #undef DEFINE_ACTION
 
 static struct msg *
-msg_from_rbe(struct rbnode *node)
-{
+msg_from_rbe(struct rbnode *node) {
     struct msg *msg;
     int offset;
 
@@ -139,8 +134,7 @@ msg_from_rbe(struct rbnode *node)
 }
 
 struct msg *
-msg_tmo_min(void)
-{
+msg_tmo_min(void) {
     struct rbnode *node;
 
     node = rbtree_min(&tmo_rbt);
@@ -151,9 +145,7 @@ msg_tmo_min(void)
     return msg_from_rbe(node);
 }
 
-void
-msg_tmo_insert(struct msg *msg, struct conn *conn)
-{
+void msg_tmo_insert(struct msg *msg, struct conn *conn) {
     struct rbnode *node;
     int timeout;
 
@@ -171,13 +163,13 @@ msg_tmo_insert(struct msg *msg, struct conn *conn)
 
     rbtree_insert(&tmo_rbt, node);
 
-    log_debug(LOG_VERB, "insert msg %"PRIu64" into tmo rbt with expiry of "
-              "%d msec", msg->id, timeout);
+    log_debug(LOG_VERB, "insert msg %" PRIu64
+                        " into tmo rbt with expiry of "
+                        "%d msec",
+              msg->id, timeout);
 }
 
-void
-msg_tmo_delete(struct msg *msg)
-{
+void msg_tmo_delete(struct msg *msg) {
     struct rbnode *node;
 
     node = &msg->tmo_rbe;
@@ -190,12 +182,11 @@ msg_tmo_delete(struct msg *msg)
 
     rbtree_delete(&tmo_rbt, node);
 
-    log_debug(LOG_VERB, "delete msg %"PRIu64" from tmo rbt", msg->id);
+    log_debug(LOG_VERB, "delete msg %" PRIu64 " from tmo rbt", msg->id);
 }
 
 static struct msg *
-_msg_get(void)
-{
+_msg_get(void) {
     struct msg *msg;
 
     if (!TAILQ_EMPTY(&free_msgq)) {
@@ -281,8 +272,7 @@ done:
 }
 
 struct msg *
-msg_get(struct conn *conn, bool request, bool redis)
-{
+msg_get(struct conn *conn, bool request, bool redis) {
     struct msg *msg;
 
     msg = _msg_get();
@@ -323,15 +313,14 @@ msg_get(struct conn *conn, bool request, bool redis)
         msg->start_ts = nc_usec_now();
     }
 
-    log_debug(LOG_VVERB, "get msg %p id %"PRIu64" request %d owner sd %d",
+    log_debug(LOG_VVERB, "get msg %p id %" PRIu64 " request %d owner sd %d",
               msg, msg->id, msg->request, conn->sd);
 
     return msg;
 }
 
 struct msg *
-msg_get_error(bool redis, err_t err)
-{
+msg_get_error(bool redis, err_t err) {
     struct msg *msg;
     struct mbuf *mbuf;
     int n;
@@ -353,29 +342,26 @@ msg_get_error(bool redis, err_t err)
     }
     mbuf_insert(&msg->mhdr, mbuf);
 
-    n = nc_scnprintf(mbuf->last, mbuf_size(mbuf), "%s %s"CRLF, protstr, errstr);
+    n = nc_scnprintf(mbuf->last, mbuf_size(mbuf), "%s %s" CRLF, protstr, errstr);
     mbuf->last += n;
     msg->mlen = (uint32_t)n;
 
-    log_debug(LOG_VVERB, "get msg %p id %"PRIu64" len %"PRIu32" error '%s'",
+    log_debug(LOG_VVERB, "get msg %p id %" PRIu64 " len %" PRIu32 " error '%s'",
               msg, msg->id, msg->mlen, errstr);
 
     return msg;
 }
 
 static void
-msg_free(struct msg *msg)
-{
+msg_free(struct msg *msg) {
     ASSERT(STAILQ_EMPTY(&msg->mhdr));
 
-    log_debug(LOG_VVERB, "free msg %p id %"PRIu64"", msg, msg->id);
+    log_debug(LOG_VVERB, "free msg %p id %" PRIu64 "", msg, msg->id);
     nc_free(msg);
 }
 
-void
-msg_put(struct msg *msg)
-{
-    log_debug(LOG_VVERB, "put msg %p id %"PRIu64"", msg, msg->id);
+void msg_put(struct msg *msg) {
+    log_debug(LOG_VVERB, "put msg %p id %" PRIu64 "", msg, msg->id);
 
     while (!STAILQ_EMPTY(&msg->mhdr)) {
         struct mbuf *mbuf = STAILQ_FIRST(&msg->mhdr);
@@ -398,17 +384,17 @@ msg_put(struct msg *msg)
     TAILQ_INSERT_HEAD(&free_msgq, msg, m_tqe);
 }
 
-void
-msg_dump(const struct msg *msg, int level)
-{
+void msg_dump(const struct msg *msg, int level) {
     const struct mbuf *mbuf;
 
     if (log_loggable(level) == 0) {
         return;
     }
 
-    loga("msg dump id %"PRIu64" request %d len %"PRIu32" type %d done %d "
-         "error %d (err %d)", msg->id, msg->request, msg->mlen, msg->type,
+    loga("msg dump id %" PRIu64 " request %d len %" PRIu32
+         " type %d done %d "
+         "error %d (err %d)",
+         msg->id, msg->request, msg->mlen, msg->type,
          msg->done, msg->error, msg->err);
 
     STAILQ_FOREACH(mbuf, &msg->mhdr, next) {
@@ -423,9 +409,7 @@ msg_dump(const struct msg *msg, int level)
     }
 }
 
-void
-msg_init(void)
-{
+void msg_init(void) {
     log_debug(LOG_DEBUG, "msg size %d", (int)sizeof(struct msg));
     msg_id = 0;
     frag_id = 0;
@@ -434,9 +418,7 @@ msg_init(void)
     rbtree_init(&tmo_rbt, &tmo_rbs);
 }
 
-void
-msg_deinit(void)
-{
+void msg_deinit(void) {
     struct msg *msg, *nmsg;
 
     for (msg = TAILQ_FIRST(&free_msgq); msg != NULL;
@@ -449,20 +431,16 @@ msg_deinit(void)
 }
 
 const struct string *
-msg_type_string(msg_type_t type)
-{
+msg_type_string(msg_type_t type) {
     return &msg_type_strings[type];
 }
 
-bool
-msg_empty(const struct msg *msg)
-{
+bool msg_empty(const struct msg *msg) {
     return msg->mlen == 0;
 }
 
 uint32_t
-msg_backend_idx(const struct msg *msg, const uint8_t *key, uint32_t keylen)
-{
+msg_backend_idx(const struct msg *msg, const uint8_t *key, uint32_t keylen) {
     struct conn *conn = msg->owner;
     struct server_pool *pool = conn->owner;
 
@@ -470,8 +448,7 @@ msg_backend_idx(const struct msg *msg, const uint8_t *key, uint32_t keylen)
 }
 
 struct mbuf *
-msg_ensure_mbuf(struct msg *msg, size_t len)
-{
+msg_ensure_mbuf(struct msg *msg, size_t len) {
     struct mbuf *mbuf;
 
     if (STAILQ_EMPTY(&msg->mhdr) ||
@@ -493,8 +470,7 @@ msg_ensure_mbuf(struct msg *msg, size_t len)
  * into mbuf
  */
 rstatus_t
-msg_append(struct msg *msg, const uint8_t *pos, size_t n)
-{
+msg_append(struct msg *msg, const uint8_t *pos, size_t n) {
     struct mbuf *mbuf;
 
     ASSERT(n <= mbuf_data_size());
@@ -517,8 +493,7 @@ msg_append(struct msg *msg, const uint8_t *pos, size_t n)
  * into mbuf
  */
 rstatus_t
-msg_prepend(struct msg *msg, const uint8_t *pos, size_t n)
-{
+msg_prepend(struct msg *msg, const uint8_t *pos, size_t n) {
     struct mbuf *mbuf;
 
     mbuf = mbuf_get();
@@ -541,8 +516,7 @@ msg_prepend(struct msg *msg, const uint8_t *pos, size_t n)
  * string does not fit in a single mbuf.
  */
 rstatus_t
-msg_prepend_format(struct msg *msg, const char *fmt, ...)
-{
+msg_prepend_format(struct msg *msg, const char *fmt, ...) {
     struct mbuf *mbuf;
     int n;
     uint32_t size;
@@ -570,14 +544,12 @@ msg_prepend_format(struct msg *msg, const char *fmt, ...)
 }
 
 inline uint64_t
-msg_gen_frag_id(void)
-{
+msg_gen_frag_id(void) {
     return ++frag_id;
 }
 
 static rstatus_t
-msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg) {
     struct msg *nmsg;
     struct mbuf *mbuf, *nbuf;
 
@@ -620,8 +592,7 @@ msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
 }
 
 static rstatus_t
-msg_repair(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+msg_repair(struct context *ctx, struct conn *conn, struct msg *msg) {
     struct mbuf *nbuf;
 
     nbuf = mbuf_split(&msg->mhdr, msg->pos, NULL, NULL);
@@ -635,8 +606,7 @@ msg_repair(struct context *ctx, struct conn *conn, struct msg *msg)
 }
 
 static rstatus_t
-msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+msg_parse(struct context *ctx, struct conn *conn, struct msg *msg) {
     rstatus_t status;
 
     if (msg_empty(msg)) {
@@ -648,30 +618,29 @@ msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
     msg->parser(msg);
 
     switch (msg->result) {
-    case MSG_PARSE_OK:
-        status = msg_parsed(ctx, conn, msg);
-        break;
+        case MSG_PARSE_OK:
+            status = msg_parsed(ctx, conn, msg);
+            break;
 
-    case MSG_PARSE_REPAIR:
-        status = msg_repair(ctx, conn, msg);
-        break;
+        case MSG_PARSE_REPAIR:
+            status = msg_repair(ctx, conn, msg);
+            break;
 
-    case MSG_PARSE_AGAIN:
-        status = NC_OK;
-        break;
+        case MSG_PARSE_AGAIN:
+            status = NC_OK;
+            break;
 
-    default:
-        status = NC_ERROR;
-        conn->err = errno;
-        break;
+        default:
+            status = NC_ERROR;
+            conn->err = errno;
+            break;
     }
 
     return conn->err != 0 ? NC_ERROR : status;
 }
 
 static rstatus_t
-msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg) {
     rstatus_t status;
     struct msg *nmsg;
     struct mbuf *mbuf;
@@ -706,7 +675,8 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     for (;;) {
         if (conn->proxy) {
             // Do nothing
-        } if (!conn->client) {
+        }
+        if (!conn->client) {
             loga("[nc_message.msg_rcv_chain] Server: For loop");
         } else {
             loga("[nc_message.msg_rcv_chain] Client: For loop");
@@ -731,8 +701,7 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
 }
 
 rstatus_t
-msg_recv(struct context *ctx, struct conn *conn)
-{
+msg_recv(struct context *ctx, struct conn *conn) {
     loga("[nc_message.msg_recv] received message");
     rstatus_t status;
     struct msg *msg;
@@ -755,13 +724,14 @@ msg_recv(struct context *ctx, struct conn *conn)
     return NC_OK;
 }
 
-
 static int
-try_get_data_from_datalake() {
+try_get_data_from_datalake(char *key, char **new_msg, int *new_msg_len) {
     loga("[try_get_data_from_datalake] Start");
-    return 0;
+    int ret = aws_get_data_from_datalake(key, new_msg, new_msg_len);
+    if (ret == 1)
+        loga("[try_get_data_from_datalake] new_msg:\n%s", new_msg);
+    return ret;
 }
-
 
 static void *
 try_get_data_from_osc(void *mctx_arg) {
@@ -774,52 +744,48 @@ try_get_data_from_osc(void *mctx_arg) {
     size_t nsend, nsent;                 /* bytes to send; bytes sent */
     size_t limit;                        /* bytes to send limit */
     ssize_t n;                           /* bytes sent by sendv */
-    
-    struct macaron_ctx *mctx = (struct macaron_ctx *) mctx_arg;
+
+    struct macaron_ctx *mctx = (struct macaron_ctx *)mctx_arg;
     struct context *ctx = mctx->ctx;
     struct conn *conn = mctx->conn;
     struct msg *msg = mctx->msg;
     nc_free(mctx);
 
-    char* key = redis_parse_peer_msg_get_key(msg);
+    char *key = redis_parse_peer_msg_get_key(msg);
     ASSERT(key != NULL);
-    loga("Key for this message: %s", key);
     struct oscm_result *oscm_md = get_oscm_metadata(key);
     ASSERT(oscm_md != NULL);
     if (oscm_md->exist) {
         // If data is in the Object Storage Cache, get data from OSC
-        int value_str_len = (int) log10(abs(oscm_md->size)) + 1;
-        int new_msg_len = 18 + (int) strlen(key) + oscm_md->size + value_str_len;
+        // "$" "[length]" "CRLF" "[data]" "CRLF"
+        int value_str_len = (int)log10(abs(oscm_md->size)) + 1;
+        int new_msg_len = 5 + oscm_md->size + value_str_len;
 
         int offset = 0;
-        char *new_msg = (char *) nc_alloc(new_msg_len + 1);
+        char *new_msg = (char *)nc_alloc(new_msg_len + 1);
+        new_msg[0] = '$';
         new_msg[new_msg_len] = '\0';
-
-        snprintf(new_msg, (size_t) (10 + (int) strlen(key) + value_str_len), "VALUE %s 0 %d", key, oscm_md->size);
-        offset += 11 + (int) strlen(key) + value_str_len;
-
-        aws_get_data_from_osc(oscm_md->block_id, oscm_md->offset, oscm_md->size, new_msg + offset);
-        new_msg[offset - 2] = '\r';
-        new_msg[offset - 1] = '\n';
-        offset += (oscm_md->size - 1);
-
+        offset += 1;
+        snprintf(new_msg + offset, new_msg_len, "%d", oscm_md->size);
+        offset += value_str_len;
         new_msg[offset] = '\r';
         new_msg[offset + 1] = '\n';
-        new_msg[offset + 2] = 'E';
-        new_msg[offset + 3] = 'N';
-        new_msg[offset + 4] = 'D';
-        new_msg[offset + 5] = '\r';
-        new_msg[offset + 6] = '\n';
-        new_msg[offset + 7] = '\0';
+        offset += 2;
+        aws_get_data_from_osc(oscm_md->block_id, oscm_md->offset, oscm_md->size, new_msg + offset, new_msg_len);
+        offset += oscm_md->size;
+        new_msg[offset] = '\r';
+        new_msg[offset + 1] = '\n';
+        offset += 2;
+        ASSERT(offset == new_msg_len);
         loga("new_msg:\n%.*s", new_msg_len, new_msg);
 
-        // Send new_msg to client 
+        // Send new_msg to client
         array_set(&sendv, iov, sizeof(iov[0]), NC_IOV_MAX);
 
         ciov = array_push(&sendv);
         ciov->iov_base = new_msg;
-        ciov->iov_len = (size_t) new_msg_len;
-        nsend = (size_t) new_msg_len;
+        ciov->iov_len = (size_t)new_msg_len;
+        nsend = (size_t)new_msg_len;
 
         conn->smsg = NULL;
         conn_sendv(conn, &sendv, nsend);
@@ -827,41 +793,52 @@ try_get_data_from_osc(void *mctx_arg) {
         nc_free(new_msg);
     } else {
         // If data is not in OSC, try getting data from Datalake.
-        loga("osc_md does not exist for %s", key);
-        int datalake = try_get_data_from_datalake();
-        if (datalake > 0) {
+        loga("[try_get_data_from_osc] osc_md does not exist for %s", key);
+        char *new_msg = NULL;
+        int new_msg_len = 0;
+        int exists = try_get_data_from_datalake(key, &new_msg, &new_msg_len);
+        if (exists) {
             // data is in datalake.
-            loga("Data is in the datalake.");
+            loga("[try_get_data_from_datalake] Data is in the datalake.");
+            ASSERT(new_msg != NULL);
+
+            // Send new_msg to client
+            array_set(&sendv, iov, sizeof(iov[0]), NC_IOV_MAX);
+
+            ciov = array_push(&sendv);
+            ciov->iov_base = new_msg;
+            ciov->iov_len = (size_t)new_msg_len;
+            nsend = (size_t)new_msg_len;
+
+            conn->smsg = NULL;
+            conn_sendv(conn, &sendv, nsend);
+
+            nc_free(new_msg);
         } else {
             // If data is not is Datalake as well, send the "$-1" message (original message)
-            loga("Data is not in the datalake, too. Response with $-1 message to the clients");
+            loga("Data is not in the datalake, too. Respond with $-1 message");
             array_set(&sendv, iov, sizeof(iov[0]), NC_IOV_MAX);
 
             nsend = 0;
             limit = SSIZE_MAX;
-
+            //ASSERT(conn->smsg == msg);
             for (mbuf = STAILQ_FIRST(&msg->mhdr);
                  mbuf != NULL && array_n(&sendv) < NC_IOV_MAX && nsend < limit;
                  mbuf = nbuf) {
                 nbuf = STAILQ_NEXT(mbuf, next);
-
                 if (mbuf_empty(mbuf)) {
                     continue;
                 }
-
                 mlen = mbuf_length(mbuf);
                 if ((nsend + mlen) > limit) {
                     mlen = limit - nsend;
                 }
-
                 ciov = array_push(&sendv);
                 ciov->iov_base = mbuf->pos;
                 ciov->iov_len = mlen;
-
                 nsend += mlen;
             }
-            loga("[msg_send_chain] nsend: %zu", nsend);
-
+            loga("[try_get_data_from_datalake] nsend: %zu", nsend);
             conn->smsg = NULL;
             conn_sendv(conn, &sendv, nsend);
         }
@@ -885,8 +862,7 @@ try_get_data_from_osc(void *mctx_arg) {
 }
 
 static rstatus_t
-msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg) {
     struct msg_tqh send_msgq;            /* send msg q */
     struct msg *nmsg;                    /* next msg */
     struct mbuf *mbuf, *nbuf;            /* current and next mbuf */
@@ -897,24 +873,23 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     size_t limit;                        /* bytes to send limit */
     ssize_t n;                           /* bytes sent by sendv */
 
+    struct mbuf *xbuf;        /* mbuf to be used for "$-1" checker (Macaron) */
+    pthread_t thread_id;      /* thread id to be used for reaching out OSC/ROS */
+    struct macaron_ctx *mctx; /* macaron_ctx that have data of related information */
 
-    struct mbuf *xbuf;                   /* mbuf to be used for "$-1" checker (Macaron) */
-    pthread_t thread_id;                 /* thread id to be used for reaching out OSC/ROS */
-    struct macaron_ctx *mctx;            /* macaron_ctx that have data of related information */
-    
     /* Macaron: if there is no data in the memcached server, reach out to the local/remote object storage */
     if (msg != NULL && msg->peer != NULL && msg->peer->owner != NULL) {
         loga("[nc_message.msg_send_chain] msg->peer->owner->sd = %d", msg->peer->owner->sd);
         loga("[nc_message.msg_send_chain] msg->mlen = %d", msg->mlen);
         loga("[nc_message.msg_send_chain] msg->peer->mlen = %d", msg->peer->mlen);
-        ASSERT(msg->redis);    /* We implemented Macaron for only Redis */
+        ASSERT(msg->redis); /* We implemented Macaron for only Redis */
         if (msg->mlen == 5 && msg->peer->mlen > 11) {
             xbuf = STAILQ_FIRST(&msg->mhdr);
-            if ((char) xbuf->start[0] == '$' && (char) xbuf->start[1] == '-' && (char) xbuf->start[2] == '1') {
+            if (str3icmp((char *)xbuf->start, '$', '-', '1')) {
                 xbuf = STAILQ_FIRST(&msg->peer->mhdr);
                 // for (int i = 0; i < msg->peer->mlen; i++)
                 //     loga("%d %c", i, (char) xbuf->start[i]);
-                if ((char) xbuf->start[8] == 'g' && (char) xbuf->start[9] == 'e' && (char) xbuf->start[10] == 't') {
+                if (str3icmp((char *)(&(xbuf->start[8])), 'g', 'e', 't')) {
                     loga("[msg_send_chain] Failed to retrieve data: no such data is in the Redis server.");
                     mctx = nc_alloc(sizeof(*mctx));
                     mctx->ctx = ctx;
@@ -1049,8 +1024,7 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
 }
 
 rstatus_t
-msg_send(struct context *ctx, struct conn *conn)
-{
+msg_send(struct context *ctx, struct conn *conn) {
     rstatus_t status;
     struct msg *msg;
 
@@ -1078,8 +1052,7 @@ msg_send(struct context *ctx, struct conn *conn)
  * Set a placeholder key for a command with no key that is forwarded to an
  * arbitrary backend.
  */
-bool msg_set_placeholder_key(struct msg *r)
-{
+bool msg_set_placeholder_key(struct msg *r) {
     struct keypos *kpos;
     ASSERT(array_n(r->keys) == 0);
     kpos = array_push(r->keys);
@@ -1090,4 +1063,3 @@ bool msg_set_placeholder_key(struct msg *r)
     kpos->end = kpos->start + sizeof("placeholder") - 1;
     return true;
 }
-

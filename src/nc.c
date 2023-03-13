@@ -501,7 +501,8 @@ nc_pre_run(struct instance *nci)
     nc_print_run(nci);
 
     aws_init_sdk();
-
+    aws_init_osc();
+    aws_init_datalake();
     init_oscm_lib();
 
     return NC_OK;

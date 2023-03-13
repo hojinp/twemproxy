@@ -3,6 +3,7 @@
 #include <grpcpp/channel.h>
 #include <grpcpp/create_channel.h>
 #include <grpcpp/security/credentials.h>
+
 #include <iostream>
 
 #include "oscm_server_client.h"
@@ -31,7 +32,16 @@ struct oscm_result* get_oscm_metadata(char* key) {
     return ret;
 }
 
-void set_oscm_metadata(char* key, char* block_id, int offset, int size) {
+void put_oscm_metadata(char* block_id, char* block_info) {
+    std::cout << "[put_oscm_metadata] BlockId: " << block_id << ", BlockInfo: " << block_info << std::endl;
+    int status = oscm_server_client->PutMetadata(block_id, block_info);
+    assert(status == 1);
+}
+
+void delete_oscm_metadata(char* key) {
+    std::cout << "[delete_oscm_metadata] Key: " << key << std::endl;
+    int status = oscm_server_client->DeleteMetadata(key);
+    assert(status == 1);
 }
 
 #ifdef __cplusplus

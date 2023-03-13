@@ -18,7 +18,8 @@ void init_oscm_lib(void);
 void deinit_oscm_lib(void);
 
 struct oscm_result* get_oscm_metadata(char* key);
-void set_oscm_metadata(char* key, char* block_id, int offset, int size);
+void put_oscm_metadata(char* block_id, char* block_info);
+void delete_oscm_metadata(char* key);
 
 #ifdef __cplusplus
 }

@@ -17,6 +17,10 @@ class OSCMServerClient {
     OSCMServerClient(std::shared_ptr<grpc::Channel> channel);
 
     oscm_result* GetMetadata(char* key);
+
+    int PutMetadata(char* block_id, char* block_info);
+
+    int DeleteMetadata(char* key);
 };
 
 #ifdef __cplusplus

@@ -22,33 +22,67 @@ OSCMServerClient::OSCMServerClient(std::shared_ptr<grpc::Channel> channel)
 }
 
 oscm_result* OSCMServerClient::GetMetadata(char* key) {
-    std::cout << "[OSCMSeverClient::GetMetaData] Key: " << key << std::endl;
-    GetParam getParam;
-    GetReturn getReturn;
+    std::cout << "[OSCMSeverClient::GetMetadata] Key: " << key << std::endl;
+    GetParam get_param;
+    GetReturn get_return;
     std::string key_str = std::string(key);
-    getParam.set_key(key_str);
+    get_param.set_key(key_str);
 
     grpc::ClientContext context;
-    grpc::Status status = stub_->GetMetadata(&context, getParam, &getReturn);
+    grpc::Status status = stub_->GetMetadata(&context, get_param, &get_return);
     if (!status.ok()) {
-        std::cout << "GetFeature rpc failed." << std::endl;
+        std::cout << "GetMetadata rpc failed." << std::endl;
         return NULL;
     }
 
     oscm_result* ret = (oscm_result*)malloc(sizeof(oscm_result));
-    if (!getReturn.exists()) {
-        std::cout << "[OSCMSeverClient::GetMetaData] Doesn't exist in OSCMServer" << std::endl;
+    if (!get_return.exists()) {
+        std::cout << "[OSCMSeverClient::GetMetadata] Doesn't exist in OSCMServer" << std::endl;
         ret->exist = 0;
     } else {
-        std::cout << "[OSCMSeverClient::GetMetaData] Exist in OSCMServer" << std::endl;
-        std::string blockid = getReturn.blockid();
+        std::cout << "[OSCMSeverClient::GetMetadata] Exist in OSCMServer" << std::endl;
+        std::string blockid = get_return.blockid();
         strncpy(ret->block_id, blockid.c_str(), blockid.length());
         ret->block_id[blockid.length()] = '\0';
-        ret->offset = getReturn.offset();
-        ret->size = getReturn.size();
+        ret->offset = get_return.offset();
+        ret->size = get_return.size();
         ret->exist = 1;
     }
     return ret;
+}
+
+int OSCMServerClient::PutMetadata(char* block_id, char* block_info) {
+    std::cout << "[OSCMServerClient::PutMetadata] BlockId: " << block_id << std::endl;
+    PutParam put_param;
+    PutReturn put_return;
+    std::string block_id_str = std::string(block_id);
+    std::string block_info_str = std::string(block_info);
+    put_param.set_blockid(block_id_str);
+    put_param.set_blockinfo(block_info_str);
+
+    grpc::ClientContext context;
+    grpc::Status status = stub_->PutMetadata(&context, put_param, &put_return);
+    if (!status.ok()) {
+        std::cout << "PutMetadata rpc failed." << std::endl;
+        return -1;
+    }
+    return 1;
+}
+
+int OSCMServerClient::DeleteMetadata(char* key) {
+    std::cout << "[OSCMServerClient::DeleteMetadata] Key: " << key << std::endl;
+    DeleteParam del_param;
+    DeleteReturn del_return;
+    std::string key_str = std::string(key);
+    del_param.set_key(key_str);
+
+    grpc::ClientContext context;
+    grpc::Status status = stub_->DeleteMetadata(&context, del_param, &del_return);
+    if (!status.ok()) {
+        std::cout << "DeleteMetadata rpc failed." << std::endl;
+        return -1;
+    }
+    return 1;
 }
 
 #ifdef __cplusplus
