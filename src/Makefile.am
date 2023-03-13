@@ -25,6 +25,7 @@ AM_CFLAGS += -std=c11
 AM_LDFLAGS =
 AM_LDFLAGS += -lm -lpthread -rdynamic
 AM_LDFLAGS += -lstdc++ -laws-cpp-sdk-s3 -laws-cpp-sdk-core
+AM_LDFLAGS += -lprotobuf -lgrpc++
 if OS_SOLARIS
 AM_LDFLAGS += -lnsl -lsocket
 endif
@@ -39,6 +40,10 @@ sbin_PROGRAMS = nutcracker
 nutcracker_SOURCES =			\
 	nc_core.c nc_core.h		\
 	aws/nc_aws_api.cpp aws/nc_aws.h \
+	protobuf/oscm_server.grpc.pb.cc protobuf/oscm_server.grpc.pb.h \
+	protobuf/oscm_server.pb.cc protobuf/oscm_server.pb.h \
+	oscm/oscm_server_client.cpp oscm/oscm_server_client.h \
+	oscm/nc_oscm.cpp oscm/nc_oscm.h \
 	nc_connection.c nc_connection.h	\
 	nc_client.c nc_client.h		\
 	nc_server.c nc_server.h		\
@@ -69,6 +74,10 @@ bin_PROGRAMS = test_all
 test_all_SOURCES = test_all.c \
 	nc_core.c nc_core.h		\
 	aws/nc_aws_api.cpp aws/nc_aws.h \
+	protobuf/oscm_server.grpc.pb.cc protobuf/oscm_server.grpc.pb.h \
+	protobuf/oscm_server.pb.cc protobuf/oscm_server.pb.h \
+	oscm/oscm_server_client.cpp oscm/oscm_server_client.h \
+	oscm/nc_oscm.cpp oscm/nc_oscm.h \
 	nc_connection.c nc_connection.h	\
 	nc_client.c nc_client.h		\
 	nc_server.c nc_server.h		\

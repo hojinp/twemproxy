@@ -29,6 +29,7 @@
 #include <nc_signal.h>
 
 #include <aws/nc_aws.h>
+#include <oscm/nc_oscm.h>
 
 #define NC_CONF_PATH        "conf/nutcracker.yml"
 
@@ -499,9 +500,9 @@ nc_pre_run(struct instance *nci)
 
     nc_print_run(nci);
 
-    loga("Before initializing AWS SDK c++");
-    init_aws_sdk();
-    loga("Successfully initialized AWS SDK c++");
+    aws_init_sdk();
+
+    init_oscm_lib();
 
     return NC_OK;
 }
@@ -519,7 +520,9 @@ nc_post_run(struct instance *nci)
 
     log_deinit();
 
-    deinit_aws_sdk();
+    aws_deinit_sdk();
+
+    deinit_oscm_lib();
 }
 
 static void

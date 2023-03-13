@@ -24,6 +24,7 @@
 #include <nc_server.h>
 #include <proto/nc_proto.h>
 #include <aws/nc_aws.h>
+#include <oscm/nc_oscm.h>
 
 
 #if (IOV_MAX > 128)
@@ -755,16 +756,16 @@ msg_recv(struct context *ctx, struct conn *conn)
 }
 
 
+static int
+try_get_data_from_datalake() {
+    loga("[try_get_data_from_datalake] Start");
+    return 0;
+}
+
+
 static void *
 try_get_data_from_osc(void *mctx_arg) {
     loga("[try_get_data_from_osc] Started");
-
-    get_aws_bucket_list();
-
-    struct macaron_ctx *mctx = (struct macaron_ctx *) mctx_arg;
-    struct context *ctx = mctx->ctx;
-    struct conn *conn = mctx->conn;
-    struct msg *msg = mctx->msg;
 
     struct mbuf *mbuf, *nbuf;            /* current and next mbuf */
     size_t mlen;                         /* current mbuf data length */
@@ -773,99 +774,115 @@ try_get_data_from_osc(void *mctx_arg) {
     size_t nsend, nsent;                 /* bytes to send; bytes sent */
     size_t limit;                        /* bytes to send limit */
     ssize_t n;                           /* bytes sent by sendv */
+    
+    struct macaron_ctx *mctx = (struct macaron_ctx *) mctx_arg;
+    struct context *ctx = mctx->ctx;
+    struct conn *conn = mctx->conn;
+    struct msg *msg = mctx->msg;
+    nc_free(mctx);
 
-    array_set(&sendv, iov, sizeof(iov[0]), NC_IOV_MAX);
+    char* key = redis_parse_peer_msg_get_key(msg);
+    ASSERT(key != NULL);
+    loga("Key for this message: %s", key);
+    struct oscm_result *oscm_md = get_oscm_metadata(key);
+    ASSERT(oscm_md != NULL);
+    if (oscm_md->exist) {
+        // If data is in the Object Storage Cache, get data from OSC
+        int value_str_len = (int) log10(abs(oscm_md->size)) + 1;
+        int new_msg_len = 18 + (int) strlen(key) + oscm_md->size + value_str_len;
 
-    /* preprocess - build iovec */
+        int offset = 0;
+        char *new_msg = (char *) nc_alloc(new_msg_len + 1);
+        new_msg[new_msg_len] = '\0';
 
-    nsend = 0;
-    /*
-     * readv() and writev() returns EINVAL if the sum of the iov_len values
-     * overflows an ssize_t value Or, the vector count iovcnt is less than
-     * zero or greater than the permitted maximum.
-     */
-    limit = SSIZE_MAX;
+        snprintf(new_msg, (size_t) (10 + (int) strlen(key) + value_str_len), "VALUE %s 0 %d", key, oscm_md->size);
+        offset += 11 + (int) strlen(key) + value_str_len;
 
-    loga("conn->sd: %d", conn->sd);
-    loga("msg->mlen: %d", msg->mlen);
-    //loga("ocnn->smsg->mlen: %d", conn->smsg->mlen);
-    //ASSERT(conn->smsg == msg);
+        aws_get_data_from_osc(oscm_md->block_id, oscm_md->offset, oscm_md->size, new_msg + offset);
+        new_msg[offset - 2] = '\r';
+        new_msg[offset - 1] = '\n';
+        offset += (oscm_md->size - 1);
 
-    for (mbuf = STAILQ_FIRST(&msg->mhdr);
-         mbuf != NULL && array_n(&sendv) < NC_IOV_MAX && nsend < limit;
-         mbuf = nbuf) {
-        nbuf = STAILQ_NEXT(mbuf, next);
+        new_msg[offset] = '\r';
+        new_msg[offset + 1] = '\n';
+        new_msg[offset + 2] = 'E';
+        new_msg[offset + 3] = 'N';
+        new_msg[offset + 4] = 'D';
+        new_msg[offset + 5] = '\r';
+        new_msg[offset + 6] = '\n';
+        new_msg[offset + 7] = '\0';
+        loga("new_msg:\n%.*s", new_msg_len, new_msg);
 
-        if (mbuf_empty(mbuf)) {
-            continue;
-        }
-
-        mlen = mbuf_length(mbuf);
-        if ((nsend + mlen) > limit) {
-            mlen = limit - nsend;
-        }
+        // Send new_msg to client 
+        array_set(&sendv, iov, sizeof(iov[0]), NC_IOV_MAX);
 
         ciov = array_push(&sendv);
-        ciov->iov_base = mbuf->pos;
-        ciov->iov_len = mlen;
+        ciov->iov_base = new_msg;
+        ciov->iov_len = (size_t) new_msg_len;
+        nsend = (size_t) new_msg_len;
 
-        nsend += mlen;
-    }
-    loga("[msg_send_chain] nsend: %zu", nsend);
+        conn->smsg = NULL;
+        conn_sendv(conn, &sendv, nsend);
 
-    /*
-     * (nsend == 0) is possible in redis multi-del
-     * see PR: https://github.com/twitter/twemproxy/pull/225
-     */
-    conn->smsg = NULL;
-    if (nsend != 0) {
-        n = conn_sendv(conn, &sendv, nsend);
+        nc_free(new_msg);
     } else {
-        n = 0;
-    }
+        // If data is not in OSC, try getting data from Datalake.
+        loga("osc_md does not exist for %s", key);
+        int datalake = try_get_data_from_datalake();
+        if (datalake > 0) {
+            // data is in datalake.
+            loga("Data is in the datalake.");
+        } else {
+            // If data is not is Datalake as well, send the "$-1" message (original message)
+            loga("Data is not in the datalake, too. Response with $-1 message to the clients");
+            array_set(&sendv, iov, sizeof(iov[0]), NC_IOV_MAX);
 
-    nsent = n > 0 ? (size_t)n : 0;
+            nsend = 0;
+            limit = SSIZE_MAX;
 
-    /* postprocess - process sent messages in send_msgq */
+            for (mbuf = STAILQ_FIRST(&msg->mhdr);
+                 mbuf != NULL && array_n(&sendv) < NC_IOV_MAX && nsend < limit;
+                 mbuf = nbuf) {
+                nbuf = STAILQ_NEXT(mbuf, next);
 
-    if (nsent == 0) {
-        if (msg->mlen == 0) {
-            conn->send_done(ctx, conn, msg);
+                if (mbuf_empty(mbuf)) {
+                    continue;
+                }
+
+                mlen = mbuf_length(mbuf);
+                if ((nsend + mlen) > limit) {
+                    mlen = limit - nsend;
+                }
+
+                ciov = array_push(&sendv);
+                ciov->iov_base = mbuf->pos;
+                ciov->iov_len = mlen;
+
+                nsend += mlen;
+            }
+            loga("[msg_send_chain] nsend: %zu", nsend);
+
+            conn->smsg = NULL;
+            conn_sendv(conn, &sendv, nsend);
         }
-        nc_free(mctx);
-        return NULL; /* Macaron TODO: deal with error */
     }
+    nc_free(key);
+    nc_free(oscm_md);
 
     /* adjust mbufs of the sent message */
     for (mbuf = STAILQ_FIRST(&msg->mhdr); mbuf != NULL; mbuf = nbuf) {
         nbuf = STAILQ_NEXT(mbuf, next);
-
         if (mbuf_empty(mbuf)) {
             continue;
         }
-
-        mlen = mbuf_length(mbuf);
-        if (nsent < mlen) {
-            /* mbuf was sent partially; process remaining bytes later */
-            mbuf->pos += nsent;
-            ASSERT(mbuf->pos < mbuf->last);
-            nsent = 0;
-            break;
-        }
-
-        /* mbuf was sent completely; mark it empty */
         mbuf->pos = mbuf->last;
-        nsent -= mlen;
     }
 
-    /* message has been sent completely, finalize it */
-    if (mbuf == NULL) {
-        conn->send_done(ctx, conn, msg);
-    }
-    nc_free(mctx);
-    return NULL; /* Macaron TODO: deal with error */
+    ASSERT(mbuf == NULL);
+    conn->send_done(ctx, conn, msg);
+
+    return NULL;
 }
-
 
 static rstatus_t
 msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
@@ -903,14 +920,12 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
                     mctx->ctx = ctx;
                     mctx->conn = conn;
                     mctx->msg = msg;
-                    //try_get_data_from_osc(mctx);
-                    //return NC_OK;
                     int ret = pthread_create(&thread_id, NULL, try_get_data_from_osc, mctx);
                     if (ret == 0) {
-                        loga("[try_get_data_from_osc] NC_OK");
+                        loga("[msg_send_chain=>try_get_data_from_osc] NC_OK");
                         return NC_OK;
                     } else {
-                        loga("[try_get_data_from_osc] NC_ERROR");
+                        loga("[msg_send_chain=>try_get_data_from_osc] NC_ERROR");
                         nc_free(mctx);
                         return NC_ERROR;
                     }
