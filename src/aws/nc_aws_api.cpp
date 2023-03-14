@@ -151,11 +151,11 @@ int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len) {
         (*new_msg)[offset + 1] = '\n';
         offset += 2;
         assert(offset == *new_msg_len);
-        std::cout << "[aws_get_data_from_datalake] new msg: " << *new_msg << "\n" << std::flush;
+        // std::cout << "[aws_get_data_from_datalake] new msg: " << *new_msg << "\n" << std::flush;
+        // std::cout << "[aws_get_data_from_datalake] Retrieved data from S3:\n"
+        //           << ss.str() << "\n"
+        //           << std::flush;
         std::cout << "[aws_get_data_from_datalake] Size retrieved from S3: " << n << " bytes\n"
-                  << std::flush;
-        std::cout << "[aws_get_data_from_datalake] Retrieved data from S3:\n"
-                  << ss.str() << "\n"
                   << std::flush;
         return 1;
     } else {

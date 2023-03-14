@@ -728,8 +728,8 @@ static int
 try_get_data_from_datalake(char *key, char **new_msg, int *new_msg_len) {
     loga("[try_get_data_from_datalake] Start");
     int ret = aws_get_data_from_datalake(key, new_msg, new_msg_len);
-    if (ret == 1)
-        loga("[try_get_data_from_datalake] new_msg:\n%.*s", *new_msg_len, *new_msg);
+    // if (ret == 1)
+    //    loga("[try_get_data_from_datalake] new_msg:\n%.*s", *new_msg_len, *new_msg);
     return ret;
 }
 
