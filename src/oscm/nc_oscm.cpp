@@ -33,7 +33,8 @@ struct oscm_result* oscm_get_metadata(char* key) {
 }
 
 void oscm_put_metadata(char* block_id, char* block_info) {
-    std::cout << "[oscm_put_metadata] BlockId: " << block_id << ", BlockInfo: " << block_info << std::endl;
+    std::cout << "[oscm_put_metadata] BlockId: " << block_id << ", BlockInfo: " << block_info << "\n"
+              << std::flush;
     int status = oscm_server_client->PutMetadata(block_id, block_info);
     assert(status == 1);
 }

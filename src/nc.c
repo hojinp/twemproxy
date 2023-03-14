@@ -18,6 +18,7 @@
 #include <aws/nc_aws.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <macaron/macaron.h>
 #include <nc_conf.h>
 #include <nc_core.h>
 #include <nc_signal.h>
@@ -492,13 +493,22 @@ nc_pre_run(struct instance *nci) {
 
     nc_print_run(nci);
 
+    macaron_init();
+
+    return NC_OK;
+}
+
+void
+macaron_init() {
+    proxy_name = nc_alloc(32 * sizeof(char));
+    strncpy(proxy_name, "test_proxy", 10);
+    proxy_name[10] = '\0';
+
     aws_init_sdk();
     aws_init_osc();
     aws_init_datalake();
     redis_init();
     oscm_init_lib();
-
-    return NC_OK;
 }
 
 static void
@@ -512,6 +522,13 @@ nc_post_run(struct instance *nci) {
     nc_print_done();
 
     log_deinit();
+
+    macaron_deinit();
+}
+
+void
+macaron_deinit() {
+    nc_free(proxy_name);
 
     oscm_deinit_lib();
     redis_deinit();

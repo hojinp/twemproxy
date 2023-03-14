@@ -16,6 +16,7 @@
  */
 
 #include <aws/nc_aws.h>
+#include <math.h>
 #include <nc_core.h>
 #include <nc_server.h>
 #include <oscm/nc_oscm.h>
@@ -740,9 +741,8 @@ try_get_data_from_osc(void *mctx_arg) {
     size_t mlen;                         /* current mbuf data length */
     struct iovec *ciov, iov[NC_IOV_MAX]; /* current iovec */
     struct array sendv;                  /* send iovec */
-    size_t nsend, nsent;                 /* bytes to send; bytes sent */
+    size_t nsend;                 /* bytes to send; bytes sent */
     size_t limit;                        /* bytes to send limit */
-    ssize_t n;                           /* bytes sent by sendv */
 
     struct macaron_ctx *mctx = (struct macaron_ctx *)mctx_arg;
     struct context *ctx = mctx->ctx;
@@ -765,7 +765,7 @@ try_get_data_from_osc(void *mctx_arg) {
         new_msg[0] = '$';
         new_msg[new_msg_len] = '\0';
         offset += 1;
-        snprintf(new_msg + offset, new_msg_len, "%d", oscm_md->size);
+        snprintf(new_msg + offset, (size_t) new_msg_len, "%d", oscm_md->size);
         offset += value_str_len;
         new_msg[offset] = '\r';
         new_msg[offset + 1] = '\n';
@@ -818,7 +818,7 @@ try_get_data_from_osc(void *mctx_arg) {
             conn_sendv(conn, &sendv, nsend);
 
             // Promote data to OSC and Redis server
-            aws_put_data_to_osc(key, new_msg + data_offset, data_size);
+            aws_put_data_to_osc_packing(key, new_msg + data_offset, data_size);
             redis_put_data(key, new_msg + data_offset, data_size);
 
             nc_free(new_msg);
@@ -893,11 +893,11 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg) {
         ASSERT(msg->redis); /* We implemented Macaron for only Redis */
         if (msg->mlen == 5 && msg->peer->mlen > 11) {
             xbuf = STAILQ_FIRST(&msg->mhdr);
-            if (str3icmp((char *)xbuf->start, '$', '-', '1')) {
+            if (str3icmp(xbuf->start, '$', '-', '1')) {
                 xbuf = STAILQ_FIRST(&msg->peer->mhdr);
                 // for (int i = 0; i < msg->peer->mlen; i++)
                 //     loga("%d %c", i, (char) xbuf->start[i]);
-                if (str3icmp((char *)(&(xbuf->start[8])), 'g', 'e', 't')) {
+                if (str3icmp((uint8_t *)(&(xbuf->start[8])), 'g', 'e', 't')) {
                     loga("[msg_send_chain] Failed to retrieve data: no such data is in the Redis server.");
                     mctx = nc_alloc(sizeof(*mctx));
                     mctx->ctx = ctx;
