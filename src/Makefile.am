@@ -4,6 +4,7 @@ AM_CPPFLAGS =
 if !OS_SOLARIS
 AM_CPPFLAGS += -D_GNU_SOURCE
 endif
+AM_CPPFLAGS += -std=c++17
 AM_CPPFLAGS += -I $(top_srcdir)/src/hashkit
 AM_CPPFLAGS += -I $(top_srcdir)/src/proto
 AM_CPPFLAGS += -I $(top_srcdir)/src/event
@@ -26,6 +27,7 @@ AM_LDFLAGS =
 AM_LDFLAGS += -lm -lpthread -rdynamic
 AM_LDFLAGS += -lstdc++ -laws-cpp-sdk-s3 -laws-cpp-sdk-core
 AM_LDFLAGS += -lprotobuf -lgrpc++
+AM_LDFLAGS += -lredis++ -lhiredis
 if OS_SOLARIS
 AM_LDFLAGS += -lnsl -lsocket
 endif
@@ -40,6 +42,7 @@ sbin_PROGRAMS = nutcracker
 nutcracker_SOURCES =			\
 	nc_core.c nc_core.h		\
 	aws/nc_aws_api.cpp aws/nc_aws.h \
+	redis/nc_redis.cpp redis/nc_redis.h \
 	protobuf/oscm_server.grpc.pb.cc protobuf/oscm_server.grpc.pb.h \
 	protobuf/oscm_server.pb.cc protobuf/oscm_server.pb.h \
 	oscm/oscm_server_client.cpp oscm/oscm_server_client.h \
@@ -74,6 +77,7 @@ bin_PROGRAMS = test_all
 test_all_SOURCES = test_all.c \
 	nc_core.c nc_core.h		\
 	aws/nc_aws_api.cpp aws/nc_aws.h \
+	redis/nc_redis.cpp redis/nc_redis.h \
 	protobuf/oscm_server.grpc.pb.cc protobuf/oscm_server.grpc.pb.h \
 	protobuf/oscm_server.pb.cc protobuf/oscm_server.pb.h \
 	oscm/oscm_server_client.cpp oscm/oscm_server_client.h \

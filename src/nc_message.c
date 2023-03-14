@@ -20,6 +20,7 @@
 #include <nc_server.h>
 #include <oscm/nc_oscm.h>
 #include <proto/nc_proto.h>
+#include <redis/nc_redis.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/uio.h>
@@ -725,11 +726,9 @@ msg_recv(struct context *ctx, struct conn *conn) {
 }
 
 static int
-try_get_data_from_datalake(char *key, char **new_msg, int *new_msg_len) {
+try_get_data_from_datalake(char *key, char **new_msg, int *new_msg_len, int *data_offset, int *data_size) {
     loga("[try_get_data_from_datalake] Start");
-    int ret = aws_get_data_from_datalake(key, new_msg, new_msg_len);
-    // if (ret == 1)
-    //    loga("[try_get_data_from_datalake] new_msg:\n%.*s", *new_msg_len, *new_msg);
+    int ret = aws_get_data_from_datalake(key, new_msg, new_msg_len, data_offset, data_size);
     return ret;
 }
 
@@ -753,7 +752,7 @@ try_get_data_from_osc(void *mctx_arg) {
 
     char *key = redis_parse_peer_msg_get_key(msg);
     ASSERT(key != NULL);
-    struct oscm_result *oscm_md = get_oscm_metadata(key);
+    struct oscm_result *oscm_md = oscm_get_metadata(key);
     ASSERT(oscm_md != NULL);
     if (oscm_md->exist) {
         // If data is in the Object Storage Cache, get data from OSC
@@ -771,6 +770,7 @@ try_get_data_from_osc(void *mctx_arg) {
         new_msg[offset] = '\r';
         new_msg[offset + 1] = '\n';
         offset += 2;
+        int data_offset = offset;
         aws_get_data_from_osc(oscm_md->block_id, oscm_md->offset, oscm_md->size, new_msg + offset, new_msg_len);
         offset += oscm_md->size;
         new_msg[offset] = '\r';
@@ -790,13 +790,17 @@ try_get_data_from_osc(void *mctx_arg) {
         conn->smsg = NULL;
         conn_sendv(conn, &sendv, nsend);
 
+        // Promote data to Redis server
+        redis_put_data(key, new_msg + data_offset, oscm_md->size);
+
         nc_free(new_msg);
     } else {
         // If data is not in OSC, try getting data from Datalake.
         loga("[try_get_data_from_osc] osc_md does not exist for %s", key);
         char *new_msg = NULL;
         int new_msg_len = 0;
-        int exists = try_get_data_from_datalake(key, &new_msg, &new_msg_len);
+        int data_offset, data_size;
+        int exists = try_get_data_from_datalake(key, &new_msg, &new_msg_len, &data_offset, &data_size);
         if (exists) {
             // data is in datalake.
             loga("[try_get_data_from_datalake] Data is in the datalake.");
@@ -813,6 +817,10 @@ try_get_data_from_osc(void *mctx_arg) {
             conn->smsg = NULL;
             conn_sendv(conn, &sendv, nsend);
 
+            // Promote data to OSC and Redis server
+            aws_put_data_to_osc(key, new_msg + data_offset, data_size);
+            redis_put_data(key, new_msg + data_offset, data_size);
+
             nc_free(new_msg);
         } else {
             // If data is not is Datalake as well, send the "$-1" message (original message)
@@ -821,7 +829,7 @@ try_get_data_from_osc(void *mctx_arg) {
 
             nsend = 0;
             limit = SSIZE_MAX;
-            //ASSERT(conn->smsg == msg);
+            // ASSERT(conn->smsg == msg);
             for (mbuf = STAILQ_FIRST(&msg->mhdr);
                  mbuf != NULL && array_n(&sendv) < NC_IOV_MAX && nsend < limit;
                  mbuf = nbuf) {

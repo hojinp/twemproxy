@@ -23,6 +23,8 @@ Aws::SDKOptions sdk_options;
 Aws::S3::S3Client* aws_s3_client_cache = NULL;
 Aws::S3::S3Client* aws_s3_client_dl = NULL;
 
+int packing_block_size = 4 * 1024 * 1024;  // XXX: Pakcing block size: 4 MB (manual)
+
 void aws_init_sdk() {
     std::cout << "[aws_init_sdk] Initialize AWS SDK c++\n"
               << std::flush;
@@ -71,11 +73,17 @@ void aws_init_datalake() {
     }
 }
 
+void aws_deinit_osc() {
+    free(aws_s3_client_cache);
+}
+
+void aws_deinit_datalake() {
+    free(aws_s3_client_dl);
+}
+
 void aws_deinit_sdk() {
     std::cout << "[aws_deinit_sdk] Deinitialize AWS SDK c++\n"
               << std::flush;
-    free(aws_s3_client_cache);
-    free(aws_s3_client_dl);
     Aws::ShutdownAPI(sdk_options);
 }
 
@@ -121,7 +129,12 @@ void aws_get_data_from_osc(char* object_name, int offset, int size, char* data, 
     }
 }
 
-int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len) {
+void aws_put_data_to_osc(char* key, char* data, int data_size) {
+    std::cout << "[aws_put_data_to_osc] Key: " << key << "\n"
+              << std::flush;
+}
+
+int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len, int* data_offset, int* data_size) {
     std::cout << "[aws_get_data_from_datalake] Start key: " << key << std::endl;
     Aws::S3::Model::GetObjectRequest request;
     request.SetBucket(DATALAKE_BUCKET_NAME);
@@ -131,6 +144,7 @@ int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len) {
         std::stringstream ss;
         ss << outcome.GetResult().GetBody().rdbuf();
         int n = outcome.GetResult().GetContentLength();
+        *data_size = n;
 
         int value_str_len = (int)log10(abs(n)) + 1;
         *new_msg_len = 5 + n + value_str_len;
@@ -145,6 +159,7 @@ int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len) {
         (*new_msg)[offset] = '\r';
         (*new_msg)[offset + 1] = '\n';
         offset += 2;
+        *data_offset = offset;
         snprintf((*new_msg) + offset, *new_msg_len, "%s", ss.str().c_str());
         offset += n;
         (*new_msg)[offset] = '\r';

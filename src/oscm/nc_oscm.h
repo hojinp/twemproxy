@@ -13,13 +13,12 @@ struct oscm_result {
     unsigned exist : 1;
 };
 
-void init_oscm_lib(void);
+void oscm_init_lib(void);
+void oscm_deinit_lib(void);
 
-void deinit_oscm_lib(void);
-
-struct oscm_result* get_oscm_metadata(char* key);
-void put_oscm_metadata(char* block_id, char* block_info);
-void delete_oscm_metadata(char* key);
+struct oscm_result* oscm_get_metadata(char* key);
+void oscm_put_metadata(char* block_id, char* block_info);
+void oscm_delete_metadata(char* key);
 
 #ifdef __cplusplus
 }
