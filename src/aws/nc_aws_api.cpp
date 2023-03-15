@@ -37,7 +37,6 @@ char** packing_ids;                  // packing id for each pending packings
 char** packing_buffers;              // packing buffer for each pending packings
 int packing_buffer_offset;           // offset of the packing buffer for the next data
 struct packing_info* packing_infos;  // metadata of each pending packings
-int* packing_buffer_sizes;           // how much data is filled in for each packing buffer
 std::mutex packing_idx_mutex;
 std::mutex packing_mutex;
 
@@ -71,8 +70,7 @@ void aws_init_osc() {
     }
 
     // Start the OSC packing background thread
-    int ti = 100;
-    int ret = pthread_create(&packing_thread, NULL, &packing_worker, &ti);
+    int ret = pthread_create(&packing_thread, NULL, &packing_worker, NULL);
     if (ret != 0) {
         std::cout << "Error: pthread_create() failed\n"
                   << std::flush;
@@ -106,8 +104,9 @@ void packing_info_to_str(struct packing_info& p_info, char** p_info_str) {
     (*p_info_str)[ret.length()] = '\0';
 }
 
-void* packing_worker(void* ti) {
-    std::cout << "[packing_worker] Started\n"
+void* packing_worker(void*) {
+    int const time_interval = 100;
+    std::cout << "[packing_worker] Started, time interval: " << time_interval << "\n"
               << std::flush;
 
     // initalize packing related resources
@@ -125,14 +124,19 @@ void* packing_worker(void* ti) {
         packing_infos[i].item_cnt = 0;
     }
     get_next_packing_id(&packing_ids[0]);
+    std::cout << "[packing_worker] First packing id: " << packing_ids[0] << "\n" << std::flush;
 
     // run packing iterations
     while (packing_thread_flag) {
+        // std::cout << "[packing_worker] check" << std::endl;
         while (packing_ptr != packing_end) {
-            aws_put_data_to_osc(&packing_ids[packing_ptr][0], packing_buffers[packing_ptr], packing_buffer_sizes[packing_ptr]);
+            std::cout << "[packing_worker] New packing block to write to OSC is prepared. Start writing to OSC the packed object" << std::endl;
+            std::cout << "[packing_worker] Packing ID: " << packing_ids[packing_ptr] << std::endl;
+            std::cout << "[packing_worker] Packing buffer size: " << packing_infos[packing_ptr].data_size << std::endl;
+            aws_put_data_to_osc(packing_ids[packing_ptr], packing_buffers[packing_ptr], packing_infos[packing_ptr].data_size);
             char* packing_info_str;
             packing_info_to_str(packing_infos[packing_ptr], &packing_info_str);
-            oscm_put_metadata(&packing_ids[packing_ptr][0], packing_info_str);
+            oscm_put_metadata(packing_ids[packing_ptr], packing_info_str);
             free(packing_info_str);
 
             std::lock_guard<std::mutex> lk(packing_mutex);
@@ -140,7 +144,7 @@ void* packing_worker(void* ti) {
             packing_infos[packing_ptr].item_cnt = 0;
             packing_ptr = (packing_ptr + 1) % PACKING_BUFFER_CNT;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(*((int*)ti)));
+        std::this_thread::sleep_for(std::chrono::milliseconds(time_interval));
     }
 
     // clean up the memory used for packing
@@ -155,15 +159,28 @@ void* packing_worker(void* ti) {
 }
 
 bool check_current_packing(int data_size) {
+    std::cout << "[check_current_packing] Item count: " << packing_infos[packing_end].item_cnt << ", Data size: "
+              << packing_infos[packing_end].data_size << "\n"
+              << std::flush;
     return packing_infos[packing_end].item_cnt + 1 < MAX_PACKING_ITEM_CNT && packing_infos[packing_end].data_size + data_size < PACKING_BLOCK_SIZE;
 }
 
 void add_data_to_packing(char* key, char* data, int data_size) {
+    std::cout << "[add_data_to_packing] Start" << std::endl;
     strncpy(&packing_buffers[packing_end][packing_buffer_offset], data, data_size);
     packing_buffer_offset += data_size;
+    std::cout << "[add_data_to_packing] Added data to buffer" << std::endl;
 
     int idx = packing_infos[packing_end].item_cnt;
     size_t key_len = strlen(key);
+    for (int i = 0; i < idx; i++) {
+        std::cout << "[add_data_to_packing] Key comparison: " << packing_infos[packing_end].keys[i] << " ?= " << key << std::endl;
+        if (strcmp(packing_infos[packing_end].keys[i], key) == 0) {
+            std::cout << "[add_data_to_packing] Same!" << std::endl;
+            packing_infos[packing_end].valids[i] = 0;
+        }
+    }
+    std::cout << "[add_data_to_packing] Checked the redundancy within the same buffer" << std::endl;
     strncpy(packing_infos[packing_end].keys[idx], key, key_len);
     packing_infos[packing_end].keys[idx][(int)key_len] = '\0';
     packing_infos[packing_end].offsets[idx] = packing_infos[packing_end].data_size;
@@ -174,7 +191,11 @@ void add_data_to_packing(char* key, char* data, int data_size) {
 }
 
 void update_packing_buffer() {
+    std::cout << "[update_packing_buffer]"
+              << "\n"
+              << std::flush;
     packing_end = (packing_end + 1) % PACKING_BUFFER_CNT;
+    packing_buffer_offset = 0;
     get_next_packing_id(&packing_ids[packing_end]);
 }
 
@@ -183,6 +204,7 @@ void update_packing_buffer() {
  */
 
 void aws_deinit_osc() {
+    std::cout << "[aws_deinit_osc] End OSC" << std::endl;
     free(aws_s3_client_cache);
     packing_thread_flag = 0;
     pthread_join(packing_thread, NULL);
@@ -263,9 +285,9 @@ void aws_get_data_from_osc(char* object_name, int offset, int size, char* data, 
 }
 
 void aws_put_data_to_osc(char* key, char* data, int data_size) {
-    //std::cout << "[aws_put_data_to_osc] Data: " << data << "\n" << std::flush;
-    //std::cout << "[aws_put_data_to_osc] Key: " << key << "\n" << std::flush;
-    //std::cout << "[aws_put_data_to_osc] Data size: " << data_size << "\n" << std::flush;
+    std::cout << "[aws_put_data_to_osc] Key: " << key << "\n" << std::flush;
+    std::cout << "[aws_put_data_to_osc] Data size: " << data_size << "\n" << std::flush;
+    // std::cout << "[aws_put_data_to_osc] Data: " << data << "\n" << std::flush;
     Aws::S3::Model::PutObjectRequest request;
     request.SetBucket(CACHE_BUCKET_NAME);
     request.SetKey(key);
@@ -282,17 +304,36 @@ void aws_put_data_to_osc(char* key, char* data, int data_size) {
     }
 }
 
+void aws_put_data_to_datalake(char* key, char* data, int data_size) {
+    Aws::S3::Model::PutObjectRequest request;
+    request.SetBucket(DATALAKE_BUCKET_NAME);
+    request.SetKey(key);
+    const std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::StringStream>("");
+    *inputData << data;
+    request.SetBody(inputData);
+    Aws::S3::Model::PutObjectOutcome outcome = aws_s3_client_dl->PutObject(request);
+    if (!outcome.IsSuccess()) {
+        std::cerr << "Error: PutObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
+                  << std::flush;
+    } else {
+        std::cout << "Success: Object '" << key << "' uploaded to bucket '" << DATALAKE_BUCKET_NAME << "'.\n"
+                  << std::flush;
+    }
+}
+
 void aws_put_data_to_osc_packing(char* key, char* data, int data_size) {
     std::cout << "[aws_put_data_to_osc_packing] Key: " << key << "\n"
               << std::flush;
     if (data_size >= PACKING_BLOCK_SIZE) {  // save the data to OSC right now, instead of adding to the packing buffer
-        char *packing_id = new char[MAX_PACKING_ID_LEN];
+        char* packing_id = new char[MAX_PACKING_ID_LEN];
         get_next_packing_id(&packing_id);
         std::cout << "[aws_put_data_to_osc_packing] new packing id: " << packing_id << "\n"
                   << std::flush;
         struct packing_info p_info;
         size_t key_len = strlen(key);
-        std::cout << "Key length: " << key_len << "\n" << std::flush;
+        std::cout << "Key length: " << key_len << "\n"
+                  << std::flush;
+        p_info.keys[0] = new char[MACARON_MAX_KEY_LEN + 1];
         strncpy(p_info.keys[0], key, key_len);
         p_info.keys[0][key_len] = '\0';
         p_info.offsets[0] = 0;
@@ -305,6 +346,7 @@ void aws_put_data_to_osc_packing(char* key, char* data, int data_size) {
         oscm_put_metadata(packing_id, packing_info_str);
         std::cout << "[aws_put_data_to_osc_packing] Metadata in string: " << packing_info_str << "\n"
                   << std::flush;
+        free(p_info.keys[0]);
         free(packing_info_str);
         free(packing_id);
     } else {

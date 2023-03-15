@@ -735,7 +735,7 @@ try_get_data_from_datalake(char *key, char **new_msg, int *new_msg_len, int *dat
 
 static void *
 try_get_data_from_osc(void *mctx_arg) {
-    loga("[try_get_data_from_osc] Started");
+    loga("[try_get_data_from_osc] Start");
 
     struct mbuf *mbuf, *nbuf;            /* current and next mbuf */
     size_t mlen;                         /* current mbuf data length */

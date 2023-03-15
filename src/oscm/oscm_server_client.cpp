@@ -55,10 +55,8 @@ int OSCMServerClient::PutMetadata(char* block_id, char* block_info) {
     std::cout << "[OSCMServerClient::PutMetadata] BlockId: " << block_id << std::endl;
     PutParam put_param;
     PutReturn put_return;
-    std::string block_id_str = std::string(block_id);
-    std::string block_info_str = std::string(block_info);
-    put_param.set_blockid(block_id_str);
-    put_param.set_blockinfo(block_info_str);
+    put_param.set_blockid(block_id);
+    put_param.set_blockinfo(block_info);
 
     grpc::ClientContext context;
     grpc::Status status = stub_->PutMetadata(&context, put_param, &put_return);

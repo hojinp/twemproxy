@@ -15,12 +15,13 @@
  * limitations under the License.
  */
 
+#include <aws/nc_aws.h>
 #include <nc_core.h>
+#include <nc_queue.h>
 #include <nc_server.h>
 
 struct msg *
-req_get(struct conn *conn)
-{
+req_get(struct conn *conn) {
     struct msg *msg;
 
     ASSERT(conn->client && !conn->proxy);
@@ -33,12 +34,11 @@ req_get(struct conn *conn)
 }
 
 static void
-req_log(const struct msg *req)
-{
-    const struct msg *rsp;           /* peer message (response) */
-    int64_t req_time;          /* time cost for this request */
-    const char *peer_str;      /* peer client ip:port */
-    uint32_t req_len, rsp_len; /* request and response length */
+req_log(const struct msg *req) {
+    const struct msg *rsp;         /* peer message (response) */
+    int64_t req_time;              /* time cost for this request */
+    const char *peer_str;          /* peer client ip:port */
+    uint32_t req_len, rsp_len;     /* request and response length */
     const struct string *req_type; /* request type string */
     const struct keypos *kpos;
 
@@ -85,18 +85,14 @@ req_log(const struct msg *req)
 
     req_type = msg_type_string(req->type);
 
-    log_debug(LOG_NOTICE, "req %"PRIu64" done on c %d req_time %"PRIi64".%03"PRIi64
-              " msec type %.*s narg %"PRIu32" req_len %"PRIu32" rsp_len %"PRIu32
-              " key0 '%.*s' peer '%s' done %d error %d",
+    log_debug(LOG_NOTICE, "req %" PRIu64 " done on c %d req_time %" PRIi64 ".%03" PRIi64 " msec type %.*s narg %" PRIu32 " req_len %" PRIu32 " rsp_len %" PRIu32 " key0 '%.*s' peer '%s' done %d error %d",
               req->id, req->owner->sd, req_time / 1000, req_time % 1000,
               req_type->len, req_type->data, req->narg, req_len, rsp_len,
               (int)(kpos->end ? kpos->end - kpos->start : 0), kpos->start,
               peer_str, req->done, req->error);
 }
 
-void
-req_put(struct msg *msg)
-{
+void req_put(struct msg *msg) {
     struct msg *pmsg; /* peer message (response) */
 
     ASSERT(msg->request);
@@ -125,12 +121,10 @@ req_put(struct msg *msg)
  *
  * msg->fdone is modified to cache whether this request was done.
  */
-bool
-req_done(const struct conn *conn, struct msg *msg)
-{
-    struct msg *cmsg;        /* current message */
-    uint64_t id;             /* fragment id */
-    uint32_t nfragment;      /* # fragment */
+bool req_done(const struct conn *conn, struct msg *msg) {
+    struct msg *cmsg;   /* current message */
+    uint64_t id;        /* fragment id */
+    uint32_t nfragment; /* # fragment */
 
     ASSERT(conn->client && !conn->proxy);
     ASSERT(msg->request);
@@ -158,7 +152,6 @@ req_done(const struct conn *conn, struct msg *msg)
     for (cmsg = TAILQ_PREV(msg, msg_tqh, c_tqe);
          cmsg != NULL && cmsg->frag_id == id;
          cmsg = TAILQ_PREV(cmsg, msg_tqh, c_tqe)) {
-
         if (!cmsg->done) {
             return false;
         }
@@ -167,7 +160,6 @@ req_done(const struct conn *conn, struct msg *msg)
     for (cmsg = TAILQ_NEXT(msg, c_tqe);
          cmsg != NULL && cmsg->frag_id == id;
          cmsg = TAILQ_NEXT(cmsg, c_tqe)) {
-
         if (!cmsg->done) {
             return false;
         }
@@ -202,12 +194,10 @@ req_done(const struct conn *conn, struct msg *msg)
 
     msg->post_coalesce(msg->frag_owner);
 
-    log_debug(LOG_DEBUG, "req from c %d with fid %"PRIu64" and %"PRIu32" "
-              "fragments is done", conn->sd, id, nfragment);
+    log_debug(LOG_DEBUG, "req from c %d with fid %" PRIu64 " and %" PRIu32 " fragments is done", conn->sd, id, nfragment);
 
     return true;
 }
-
 
 /*
  * Return true if request is in error, false otherwise
@@ -216,9 +206,7 @@ req_done(const struct conn *conn, struct msg *msg)
  * given request. A multiget request is in error if there was an error in
  * receiving response for any its fragments.
  */
-bool
-req_error(const struct conn *conn, struct msg *msg)
-{
+bool req_error(const struct conn *conn, struct msg *msg) {
     struct msg *cmsg; /* current message */
     uint64_t id;
     uint32_t nfragment;
@@ -244,7 +232,6 @@ req_error(const struct conn *conn, struct msg *msg)
     for (cmsg = TAILQ_PREV(msg, msg_tqh, c_tqe);
          cmsg != NULL && cmsg->frag_id == id;
          cmsg = TAILQ_PREV(cmsg, msg_tqh, c_tqe)) {
-
         if (cmsg->error) {
             goto ferror;
         }
@@ -253,7 +240,6 @@ req_error(const struct conn *conn, struct msg *msg)
     for (cmsg = TAILQ_NEXT(msg, c_tqe);
          cmsg != NULL && cmsg->frag_id == id;
          cmsg = TAILQ_NEXT(cmsg, c_tqe)) {
-
         if (cmsg->error) {
             goto ferror;
         }
@@ -285,15 +271,15 @@ ferror:
         nfragment++;
     }
 
-    log_debug(LOG_DEBUG, "req from c %d with fid %"PRIu64" and %"PRIu32" "
-              "fragments is in error", conn->sd, id, nfragment);
+    log_debug(LOG_DEBUG, "req from c %d with fid %" PRIu64 " and %" PRIu32
+                         " "
+                         "fragments is in error",
+              conn->sd, id, nfragment);
 
     return true;
 }
 
-void
-req_server_enqueue_imsgq(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+void req_server_enqueue_imsgq(struct context *ctx, struct conn *conn, struct msg *msg) {
     ASSERT(msg->request);
     ASSERT(!conn->client && !conn->proxy);
 
@@ -315,9 +301,7 @@ req_server_enqueue_imsgq(struct context *ctx, struct conn *conn, struct msg *msg
     stats_server_incr_by(ctx, conn->owner, in_queue_bytes, msg->mlen);
 }
 
-void
-req_server_enqueue_imsgq_head(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+void req_server_enqueue_imsgq_head(struct context *ctx, struct conn *conn, struct msg *msg) {
     ASSERT(msg->request);
     ASSERT(!conn->client && !conn->proxy);
 
@@ -339,9 +323,7 @@ req_server_enqueue_imsgq_head(struct context *ctx, struct conn *conn, struct msg
     stats_server_incr_by(ctx, conn->owner, in_queue_bytes, msg->mlen);
 }
 
-void
-req_server_dequeue_imsgq(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+void req_server_dequeue_imsgq(struct context *ctx, struct conn *conn, struct msg *msg) {
     ASSERT(msg->request);
     ASSERT(!conn->client && !conn->proxy);
 
@@ -351,18 +333,14 @@ req_server_dequeue_imsgq(struct context *ctx, struct conn *conn, struct msg *msg
     stats_server_decr_by(ctx, conn->owner, in_queue_bytes, msg->mlen);
 }
 
-void
-req_client_enqueue_omsgq(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+void req_client_enqueue_omsgq(struct context *ctx, struct conn *conn, struct msg *msg) {
     ASSERT(msg->request);
     ASSERT(conn->client && !conn->proxy);
 
     TAILQ_INSERT_TAIL(&conn->omsg_q, msg, c_tqe);
 }
 
-void
-req_server_enqueue_omsgq(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+void req_server_enqueue_omsgq(struct context *ctx, struct conn *conn, struct msg *msg) {
     ASSERT(msg->request);
     ASSERT(!conn->client && !conn->proxy);
 
@@ -372,18 +350,14 @@ req_server_enqueue_omsgq(struct context *ctx, struct conn *conn, struct msg *msg
     stats_server_incr_by(ctx, conn->owner, out_queue_bytes, msg->mlen);
 }
 
-void
-req_client_dequeue_omsgq(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+void req_client_dequeue_omsgq(struct context *ctx, struct conn *conn, struct msg *msg) {
     ASSERT(msg->request);
     ASSERT(conn->client && !conn->proxy);
 
     TAILQ_REMOVE(&conn->omsg_q, msg, c_tqe);
 }
 
-void
-req_server_dequeue_omsgq(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+void req_server_dequeue_omsgq(struct context *ctx, struct conn *conn, struct msg *msg) {
     ASSERT(msg->request);
     ASSERT(!conn->client && !conn->proxy);
 
@@ -396,8 +370,7 @@ req_server_dequeue_omsgq(struct context *ctx, struct conn *conn, struct msg *msg
 }
 
 struct msg *
-req_recv_next(struct context *ctx, struct conn *conn, bool alloc)
-{
+req_recv_next(struct context *ctx, struct conn *conn, bool alloc) {
     struct msg *msg;
 
     ASSERT(conn->client && !conn->proxy);
@@ -412,8 +385,10 @@ req_recv_next(struct context *ctx, struct conn *conn, bool alloc)
             ASSERT(msg->peer == NULL);
             ASSERT(msg->request && !msg->done);
 
-            log_error("eof c %d discarding incomplete req %"PRIu64" len "
-                      "%"PRIu32"", conn->sd, msg->id, msg->mlen);
+            log_error("eof c %d discarding incomplete req %" PRIu64
+                      " len "
+                      "%" PRIu32 "",
+                      conn->sd, msg->id, msg->mlen);
 
             req_put(msg);
         }
@@ -451,8 +426,7 @@ req_recv_next(struct context *ctx, struct conn *conn, bool alloc)
 }
 
 static rstatus_t
-req_make_reply(struct context *ctx, struct conn *conn, struct msg *req)
-{
+req_make_reply(struct context *ctx, struct conn *conn, struct msg *req) {
     struct msg *rsp;
 
     rsp = msg_get(conn, false, conn->redis); /* replay */
@@ -472,13 +446,12 @@ req_make_reply(struct context *ctx, struct conn *conn, struct msg *req)
 }
 
 static bool
-req_filter(struct conn *conn, struct msg *msg)
-{
+req_filter(struct conn *conn, struct msg *msg) {
     ASSERT(conn->client && !conn->proxy);
 
     if (msg_empty(msg)) {
         ASSERT(conn->rmsg == NULL);
-        log_debug(LOG_VERB, "filter empty req %"PRIu64" from c %d", msg->id,
+        log_debug(LOG_VERB, "filter empty req %" PRIu64 " from c %d", msg->id,
                   conn->sd);
         req_put(msg);
         return true;
@@ -490,11 +463,13 @@ req_filter(struct conn *conn, struct msg *msg)
      * as soon as all pending replies have been written to the client.
      */
     if (msg->quit) {
-        log_debug(LOG_INFO, "filter quit req %"PRIu64" from c %d", msg->id,
+        log_debug(LOG_INFO, "filter quit req %" PRIu64 " from c %d", msg->id,
                   conn->sd);
         if (conn->rmsg != NULL) {
-            log_debug(LOG_INFO, "discard invalid req %"PRIu64" len %"PRIu32" "
-                      "from c %d sent after quit req", conn->rmsg->id,
+            log_debug(LOG_INFO, "discard invalid req %" PRIu64 " len %" PRIu32
+                                " "
+                                "from c %d sent after quit req",
+                      conn->rmsg->id,
                       conn->rmsg->mlen, conn->sd);
         }
         conn->eof = 1;
@@ -515,15 +490,13 @@ req_filter(struct conn *conn, struct msg *msg)
 }
 
 static void
-req_forward_error(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+req_forward_error(struct context *ctx, struct conn *conn, struct msg *msg) {
     rstatus_t status;
 
     ASSERT(conn->client && !conn->proxy);
 
-    log_debug(LOG_INFO, "forward req %"PRIu64" len %"PRIu32" type %d from "
-              "c %d failed: %s", msg->id, msg->mlen, msg->type, conn->sd,
-              strerror(errno));
+    log_debug(LOG_INFO, "forward req %" PRIu64 " len %" PRIu32 " type %d from c %d failed: %s",
+              msg->id, msg->mlen, msg->type, conn->sd, strerror(errno));
 
     msg->done = 1;
     msg->error = 1;
@@ -544,17 +517,48 @@ req_forward_error(struct context *ctx, struct conn *conn, struct msg *msg)
 }
 
 static void
-req_forward_stats(struct context *ctx, struct server *server, struct msg *msg)
-{
+req_forward_stats(struct context *ctx, struct server *server, struct msg *msg) {
     ASSERT(msg->request);
 
     stats_server_incr(ctx, server, requests);
     stats_server_incr_by(ctx, server, request_bytes, msg->mlen);
 }
 
+static void *
+put_data_to_osc_datalake(void *arg) {
+    loga("[put_data_to_osc_datalake] Start");
+    char *msg = (char *)arg;
+    char delimiters[] = "\t\r\n\v\f";
+    strtok(msg, delimiters);                        // total number of tokens
+    strtok(NULL, delimiters);                       // total number of chars for op
+    strtok(NULL, delimiters);                       // op
+    char *key_len_ptr = strtok(NULL, delimiters);   // length of key
+    char *key_ptr = strtok(NULL, delimiters);       // key
+    char *data_len_ptr = strtok(NULL, delimiters);  // length of data
+    char *data_ptr = strtok(NULL, delimiters);      // data
+    key_len_ptr += 1;
+    data_len_ptr += 1;
+    int key_len = 0, data_len = 0;
+    uint8_t end_char = 0;
+    for (char *ptr = key_len_ptr; (uint8_t)(*ptr) != end_char; ptr++) {
+        key_len = key_len * 10 + (*ptr - '0');
+    }
+    for (char *ptr = data_len_ptr; (uint8_t)(*ptr) != end_char; ptr++) {
+        data_len = data_len * 10 + (*ptr - '0');
+    }
+    char *key = nc_alloc(sizeof(char) * key_len + 1);
+    strncpy(key, key_ptr, key_len);
+    key[key_len] = '\0';
+    loga("[put_data_to_osc_datalake] key: %s, key_len: %d, data_len: %d", key, key_len, data_len);
+
+    aws_put_data_to_osc_packing(key, data_ptr, data_len);
+    aws_put_data_to_datalake(key, data_ptr, data_len);
+    nc_free(msg);
+    nc_free(key);
+}
+
 static void
-req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
-{
+req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg) {
     rstatus_t status;
     struct conn *s_conn;
     uint8_t *key;
@@ -562,6 +566,40 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
     struct keypos *kpos;
 
     ASSERT(c_conn->client && !c_conn->proxy);
+
+    char *copied_msg = NULL;
+    if (msg != NULL && msg->mlen > 11) {
+        ASSERT(msg->redis); /* We implemented Macaron for only Redis */
+        struct mbuf *xbuf, *nbuf;
+        xbuf = STAILQ_FIRST(&msg->mhdr);
+        if (str3icmp((uint8_t *)(&(xbuf->start[8])), 's', 'e', 't')) {
+            size_t mlen;
+            copied_msg = (char *)nc_alloc(sizeof(char) * msg->mlen + 1);
+            copied_msg[msg->mlen] = '\0';
+            size_t offset = 0;
+            int count = 0;
+            for (xbuf = STAILQ_FIRST(&msg->mhdr); xbuf != NULL; xbuf = nbuf) {
+                count++;
+                nbuf = STAILQ_NEXT(xbuf, next);
+                if (mbuf_empty(xbuf)) {
+                    continue;
+                }
+                mlen = mbuf_length(xbuf);
+                strncpy(copied_msg + offset, xbuf->start, mlen);
+                offset += mlen;
+            }
+        }
+    }
+
+    if (copied_msg != NULL) {
+        pthread_t thread_id;
+        int ret = pthread_create(&thread_id, NULL, put_data_to_osc_datalake, copied_msg);
+        if (ret == 0) {
+            loga("[req_forward] Created put_data_to_osc_datalake thread");
+        } else {
+            loga("[req_forward] Failed to create put_data_to_osc_datalake thread");
+        }
+    }
 
     /* enqueue message (request) into client outq, if response is expected */
     if (!msg->noreply) {
@@ -618,20 +656,17 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg)
 
     req_forward_stats(ctx, s_conn->owner, msg);
 
-    log_debug(LOG_VERB, "forward from c %d to s %d req %"PRIu64" len %"PRIu32
-              " type %d with key '%.*s'", c_conn->sd, s_conn->sd, msg->id,
+    log_debug(LOG_VERB, "forward from c %d to s %d req %" PRIu64 " len %" PRIu32 " type %d with key '%.*s'", c_conn->sd, s_conn->sd, msg->id,
               msg->mlen, msg->type, keylen, key);
 }
 
-void
-req_recv_done(struct context *ctx, struct conn *conn, struct msg *msg,
-              struct msg *nmsg)
-{
+void req_recv_done(struct context *ctx, struct conn *conn, struct msg *msg,
+                   struct msg *nmsg) {
     rstatus_t status;
     struct server_pool *pool;
     struct msg_tqh frag_msgq;
     struct msg *sub_msg;
-    struct msg *tmsg; 			/* tmp next message */
+    struct msg *tmsg; /* tmp next message */
 
     ASSERT(conn->client && !conn->proxy);
     ASSERT(msg->request);
@@ -704,8 +739,7 @@ req_recv_done(struct context *ctx, struct conn *conn, struct msg *msg,
 }
 
 struct msg *
-req_send_next(struct context *ctx, struct conn *conn)
-{
+req_send_next(struct context *ctx, struct conn *conn) {
     rstatus_t status;
     struct msg *msg, *nmsg; /* current and next message */
 
@@ -740,22 +774,24 @@ req_send_next(struct context *ctx, struct conn *conn)
 
     ASSERT(nmsg->request && !nmsg->done);
 
-    log_debug(LOG_VVERB, "send next req %"PRIu64" len %"PRIu32" type %d on "
-              "s %d", nmsg->id, nmsg->mlen, nmsg->type, conn->sd);
+    log_debug(LOG_VVERB, "send next req %" PRIu64 " len %" PRIu32
+                         " type %d on "
+                         "s %d",
+              nmsg->id, nmsg->mlen, nmsg->type, conn->sd);
 
     return nmsg;
 }
 
-void
-req_send_done(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+void req_send_done(struct context *ctx, struct conn *conn, struct msg *msg) {
     ASSERT(!conn->client && !conn->proxy);
     ASSERT(msg != NULL && conn->smsg == NULL);
     ASSERT(msg->request && !msg->done);
     ASSERT(msg->owner != conn);
 
-    log_debug(LOG_VVERB, "send done req %"PRIu64" len %"PRIu32" type %d on "
-              "s %d", msg->id, msg->mlen, msg->type, conn->sd);
+    log_debug(LOG_VVERB, "send done req %" PRIu64 " len %" PRIu32
+                         " type %d on "
+                         "s %d",
+              msg->id, msg->mlen, msg->type, conn->sd);
 
     /* dequeue the message (request) from server inq */
     conn->dequeue_inq(ctx, conn, msg);
