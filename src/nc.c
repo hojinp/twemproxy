@@ -407,7 +407,6 @@ nc_get_options(int argc, char **argv, struct instance *nci) {
 
             case 'n':
                 init_macaron_proxy_name(optarg);
-                loga("ProxyName: %s", get_macaron_proxy_name());
                 break;
 
             case '?':
@@ -564,6 +563,8 @@ int main(int argc, char **argv) {
     nc_set_default_options(&nci);
 
     status = nc_get_options(argc, argv, &nci);
+    loga("ProxyName: %s", get_macaron_proxy_name());
+    
     if (status != NC_OK) {
         nc_show_usage();
         exit(1);
