@@ -4,6 +4,7 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/CreateBucketRequest.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <math.h>
@@ -124,7 +125,8 @@ void* packing_worker(void*) {
         packing_infos[i].item_cnt = 0;
     }
     get_next_packing_id(&packing_ids[0]);
-    std::cout << "[packing_worker] First packing id: " << packing_ids[0] << "\n" << std::flush;
+    std::cout << "[packing_worker] First packing id: " << packing_ids[0] << "\n"
+              << std::flush;
 
     // run packing iterations
     while (packing_thread_flag) {
@@ -165,22 +167,25 @@ bool check_current_packing(int data_size) {
     return packing_infos[packing_end].item_cnt + 1 < MAX_PACKING_ITEM_CNT && packing_infos[packing_end].data_size + data_size < PACKING_BLOCK_SIZE;
 }
 
+void invalidate_key_in_packing(char* key) {
+    int idx = packing_infos[packing_end].item_cnt;
+    for (int i = 0; i < idx; i++) {
+        if (strcmp(packing_infos[packing_end].keys[i], key) == 0) {
+            packing_infos[packing_end].valids[i] = 0;
+        }
+    }
+}
+
 void add_data_to_packing(char* key, char* data, int data_size) {
     std::cout << "[add_data_to_packing] Start" << std::endl;
     strncpy(&packing_buffers[packing_end][packing_buffer_offset], data, data_size);
     packing_buffer_offset += data_size;
     std::cout << "[add_data_to_packing] Added data to buffer" << std::endl;
 
+    invalidate_key_in_packing(key);
+    std::cout << "[add_data_to_packing] Checked the redundancy within the same buffer" << std::endl;
     int idx = packing_infos[packing_end].item_cnt;
     size_t key_len = strlen(key);
-    for (int i = 0; i < idx; i++) {
-        std::cout << "[add_data_to_packing] Key comparison: " << packing_infos[packing_end].keys[i] << " ?= " << key << std::endl;
-        if (strcmp(packing_infos[packing_end].keys[i], key) == 0) {
-            std::cout << "[add_data_to_packing] Same!" << std::endl;
-            packing_infos[packing_end].valids[i] = 0;
-        }
-    }
-    std::cout << "[add_data_to_packing] Checked the redundancy within the same buffer" << std::endl;
     strncpy(packing_infos[packing_end].keys[idx], key, key_len);
     packing_infos[packing_end].keys[idx][(int)key_len] = '\0';
     packing_infos[packing_end].offsets[idx] = packing_infos[packing_end].data_size;
@@ -285,8 +290,10 @@ void aws_get_data_from_osc(char* object_name, int offset, int size, char* data, 
 }
 
 void aws_put_data_to_osc(char* key, char* data, int data_size) {
-    std::cout << "[aws_put_data_to_osc] Key: " << key << "\n" << std::flush;
-    std::cout << "[aws_put_data_to_osc] Data size: " << data_size << "\n" << std::flush;
+    std::cout << "[aws_put_data_to_osc] Key: " << key << "\n"
+              << std::flush;
+    std::cout << "[aws_put_data_to_osc] Data size: " << data_size << "\n"
+              << std::flush;
     // std::cout << "[aws_put_data_to_osc] Data: " << data << "\n" << std::flush;
     Aws::S3::Model::PutObjectRequest request;
     request.SetBucket(CACHE_BUCKET_NAME);
@@ -359,6 +366,39 @@ void aws_put_data_to_osc_packing(char* key, char* data, int data_size) {
     }
 }
 
+void aws_delete_data_from_osc(char* key) {
+    {
+        std::lock_guard<std::mutex> lk(packing_mutex);
+        invalidate_key_in_packing(key);
+    }
+    oscm_delete_metadata(key);
+    Aws::S3::Model::DeleteObjectRequest request;
+    request.WithBucket(CACHE_BUCKET_NAME).WithKey(key);
+    Aws::S3::Model::DeleteObjectOutcome outcome = aws_s3_client_cache->DeleteObject(request);
+    if (!outcome.IsSuccess()) {
+        std::cerr << "Error: DeleteObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
+                  << std::flush;
+    } else {
+        std::cout << "Success: Object '" << key << "' is deleted from bucket '" << CACHE_BUCKET_NAME << "'.\n"
+                  << std::flush;
+    }
+}
+
+void aws_delete_data_from_datalake(char* key) {
+    std::cout << "[aws_delete_data_from_datalake] Key: " << key << "\n"
+              << std::flush;
+    Aws::S3::Model::DeleteObjectRequest request;
+    request.WithBucket(DATALAKE_BUCKET_NAME).WithKey(key);
+    Aws::S3::Model::DeleteObjectOutcome outcome = aws_s3_client_dl->DeleteObject(request);
+    if (!outcome.IsSuccess()) {
+        std::cerr << "Error: DeleteObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
+                  << std::flush;
+    } else {
+        std::cout << "Success: Object '" << key << "' is deleted from bucket '" << DATALAKE_BUCKET_NAME << "'.\n"
+                  << std::flush;
+    }
+}
+
 int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len, int* data_offset, int* data_size) {
     std::cout << "[aws_get_data_from_datalake] Start key: " << key << std::endl;
     Aws::S3::Model::GetObjectRequest request;
@@ -391,10 +431,6 @@ int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len, int*
         (*new_msg)[offset + 1] = '\n';
         offset += 2;
         assert(offset == *new_msg_len);
-        // std::cout << "[aws_get_data_from_datalake] new msg: " << *new_msg << "\n" << std::flush;
-        // std::cout << "[aws_get_data_from_datalake] Retrieved data from S3:\n"
-        //           << ss.str() << "\n"
-        //           << std::flush;
         std::cout << "[aws_get_data_from_datalake] Size retrieved from S3: " << n << " bytes\n"
                   << std::flush;
         return 1;

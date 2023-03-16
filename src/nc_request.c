@@ -557,6 +557,33 @@ put_data_to_osc_datalake(void *arg) {
     nc_free(key);
 }
 
+static void *
+delete_data_from_osc_datalake(void *arg) {
+    loga("[delete_data_from_osc_datalake] Start");
+    char *msg = (char *)arg;
+    char delimiters[] = "\t\r\n\v\f";
+    strtok(msg, delimiters);                        // total number of tokens
+    strtok(NULL, delimiters);                       // total number of chars for op
+    strtok(NULL, delimiters);                       // op
+    char *key_len_ptr = strtok(NULL, delimiters);   // length of key
+    char *key_ptr = strtok(NULL, delimiters);       // key
+    key_len_ptr += 1;
+    int key_len = 0;
+    uint8_t end_char = 0;
+    for (char *ptr = key_len_ptr; (uint8_t)(*ptr) != end_char; ptr++) {
+        key_len = key_len * 10 + (*ptr - '0');
+    }
+    char *key = nc_alloc(sizeof(char) * key_len + 1);
+    strncpy(key, key_ptr, key_len);
+    key[key_len] = '\0';
+    loga("[put_data_to_osc_datalake] key: %s, key_len: %d", key, key_len);
+
+    aws_delete_data_from_osc(key);
+    aws_delete_data_from_datalake(key);
+    nc_free(msg);
+    nc_free(key);
+}
+
 static void
 req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg) {
     rstatus_t status;
@@ -567,19 +594,17 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg) {
 
     ASSERT(c_conn->client && !c_conn->proxy);
 
-    char *copied_msg = NULL;
     if (msg != NULL && msg->mlen > 11) {
         ASSERT(msg->redis); /* We implemented Macaron for only Redis */
         struct mbuf *xbuf, *nbuf;
         xbuf = STAILQ_FIRST(&msg->mhdr);
-        if (str3icmp((uint8_t *)(&(xbuf->start[8])), 's', 'e', 't')) {
+        if (str3icmp((uint8_t *)(&(xbuf->start[8])), 's', 'e', 't') ||
+            str3icmp((uint8_t *)(&(xbuf->start[8])), 'd', 'e', 'l')) {
             size_t mlen;
-            copied_msg = (char *)nc_alloc(sizeof(char) * msg->mlen + 1);
+            char *copied_msg = (char *)nc_alloc(sizeof(char) * msg->mlen + 1);
             copied_msg[msg->mlen] = '\0';
             size_t offset = 0;
-            int count = 0;
             for (xbuf = STAILQ_FIRST(&msg->mhdr); xbuf != NULL; xbuf = nbuf) {
-                count++;
                 nbuf = STAILQ_NEXT(xbuf, next);
                 if (mbuf_empty(xbuf)) {
                     continue;
@@ -588,16 +613,20 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg) {
                 strncpy(copied_msg + offset, xbuf->start, mlen);
                 offset += mlen;
             }
-        }
-    }
 
-    if (copied_msg != NULL) {
-        pthread_t thread_id;
-        int ret = pthread_create(&thread_id, NULL, put_data_to_osc_datalake, copied_msg);
-        if (ret == 0) {
-            loga("[req_forward] Created put_data_to_osc_datalake thread");
-        } else {
-            loga("[req_forward] Failed to create put_data_to_osc_datalake thread");
+            xbuf = STAILQ_FIRST(&msg->mhdr);
+            pthread_t thread_id;
+            int ret;
+            if (str3icmp((uint8_t *)(&(xbuf->start[8])), 's', 'e', 't')) {
+                ret = pthread_create(&thread_id, NULL, put_data_to_osc_datalake, copied_msg);
+            } else if (str3icmp((uint8_t *)(&(xbuf->start[8])), 'd', 'e', 'l')) {
+                ret = pthread_create(&thread_id, NULL, delete_data_from_osc_datalake, copied_msg);
+            }
+            if (ret == 0) {
+                loga("[req_forward] Created put_data_to_osc_datalake thread");
+            } else {
+                loga("[req_forward] Failed to create put_data_to_osc_datalake thread");
+            }
         }
     }
 
