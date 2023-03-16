@@ -68,9 +68,10 @@ static const struct option long_options[] = {
     {"stats-addr", required_argument, NULL, 'a'},
     {"pid-file", required_argument, NULL, 'p'},
     {"mbuf-size", required_argument, NULL, 'm'},
+    {"proxy-name", required_argument, NULL, 'n'},
     {NULL, 0, NULL, 0}};
 
-static const char short_options[] = "hVtdDv:o:c:s:i:a:p:m:";
+static const char short_options[] = "hVtdDv:o:c:s:i:a:p:m:n:";
 
 static rstatus_t
 nc_daemonize(int dump_core) {
@@ -404,6 +405,11 @@ nc_get_options(int argc, char **argv, struct instance *nci) {
                 nci->mbuf_chunk_size = (size_t)value;
                 break;
 
+            case 'n':
+                init_macaron_proxy_name(optarg);
+                loga("ProxyName: %s", get_macaron_proxy_name());
+                break;
+
             case '?':
                 switch (optopt) {
                     case 'o':
@@ -498,12 +504,7 @@ nc_pre_run(struct instance *nci) {
     return NC_OK;
 }
 
-void
-macaron_init() {
-    proxy_name = nc_alloc(32 * sizeof(char));
-    strncpy(proxy_name, "test_proxy", 10);
-    proxy_name[10] = '\0';
-
+void macaron_init() {
     aws_init_sdk();
     aws_init_osc();
     aws_init_datalake();
@@ -526,15 +527,13 @@ nc_post_run(struct instance *nci) {
     macaron_deinit();
 }
 
-void
-macaron_deinit() {
-    nc_free(proxy_name);
-
+void macaron_deinit() {
     oscm_deinit_lib();
     redis_deinit();
     aws_deinit_osc();
     aws_deinit_datalake();
     aws_deinit_sdk();
+    deinit_macaron_proxy_name();
 }
 
 static void

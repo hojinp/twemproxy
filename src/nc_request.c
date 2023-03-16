@@ -598,8 +598,8 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg) {
         ASSERT(msg->redis); /* We implemented Macaron for only Redis */
         struct mbuf *xbuf, *nbuf;
         xbuf = STAILQ_FIRST(&msg->mhdr);
-        if (str3icmp((uint8_t *)(&(xbuf->start[8])), 's', 'e', 't') ||
-            str3icmp((uint8_t *)(&(xbuf->start[8])), 'd', 'e', 'l')) {
+        uint8_t *m = (uint8_t *)xbuf->start + 8;
+        if (str3icmp(m, 's', 'e', 't') || str3icmp(m, 'd', 'e', 'l')) {
             size_t mlen;
             char *copied_msg = (char *)nc_alloc(sizeof(char) * msg->mlen + 1);
             copied_msg[msg->mlen] = '\0';
@@ -617,9 +617,9 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg) {
             xbuf = STAILQ_FIRST(&msg->mhdr);
             pthread_t thread_id;
             int ret;
-            if (str3icmp((uint8_t *)(&(xbuf->start[8])), 's', 'e', 't')) {
+            if (str3icmp(m, 's', 'e', 't')) {
                 ret = pthread_create(&thread_id, NULL, put_data_to_osc_datalake, copied_msg);
-            } else if (str3icmp((uint8_t *)(&(xbuf->start[8])), 'd', 'e', 'l')) {
+            } else if (str3icmp(m, 'd', 'e', 'l')) {
                 ret = pthread_create(&thread_id, NULL, delete_data_from_osc_datalake, copied_msg);
             }
             if (ret == 0) {

@@ -41,6 +41,7 @@ struct packing_info* packing_infos;  // metadata of each pending packings
 std::mutex packing_idx_mutex;
 std::mutex packing_mutex;
 
+
 void aws_init_sdk() {
     std::cout << "[aws_init_sdk] Initialize AWS SDK c++\n"
               << std::flush;
@@ -85,7 +86,7 @@ void aws_init_osc() {
 
 void get_next_packing_id(char** packing_id) {
     std::lock_guard<std::mutex> lk(packing_idx_mutex);
-    std::string name = proxy_name;
+    std::string name = get_macaron_proxy_name();
     name += ("-" + std::to_string(packing_idx++));
     strncpy(*packing_id, name.c_str(), name.length());
     (*packing_id)[name.length()] = '\0';

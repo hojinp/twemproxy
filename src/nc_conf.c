@@ -19,6 +19,7 @@
 #include <nc_conf.h>
 #include <nc_server.h>
 #include <proto/nc_proto.h>
+#include <macaron/macaron.h>
 
 #define DEFINE_ACTION(_hash, _name) string(#_name),
 static const struct string hash_strings[] = {

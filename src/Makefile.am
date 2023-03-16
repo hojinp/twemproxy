@@ -40,8 +40,8 @@ SUBDIRS = hashkit proto event
 sbin_PROGRAMS = nutcracker
 
 nutcracker_SOURCES =			\
+	macaron/macaron.cpp macaron/macaron.h \
 	nc_core.c nc_core.h		\
-	macaron/macaron.h \
 	aws/nc_aws_api.cpp aws/nc_aws.h \
 	redis/nc_redis.cpp redis/nc_redis.h \
 	protobuf/oscm_server.grpc.pb.cc protobuf/oscm_server.grpc.pb.h \
@@ -76,8 +76,8 @@ TESTS = test_all
 bin_PROGRAMS = test_all
 
 test_all_SOURCES = test_all.c \
+	macaron/macaron.cpp macaron/macaron.h \
 	nc_core.c nc_core.h		\
-	macaron/macaron.h \
 	aws/nc_aws_api.cpp aws/nc_aws.h \
 	redis/nc_redis.cpp redis/nc_redis.h \
 	protobuf/oscm_server.grpc.pb.cc protobuf/oscm_server.grpc.pb.h \
