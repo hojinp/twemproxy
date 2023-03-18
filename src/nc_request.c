@@ -615,18 +615,20 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg) {
             }
 
             xbuf = STAILQ_FIRST(&msg->mhdr);
-            pthread_t thread_id;
-            int ret;
+            //pthread_t thread_id;
+            //int ret;
             if (str3icmp(m, 's', 'e', 't')) {
-                ret = pthread_create(&thread_id, NULL, put_data_to_osc_datalake, copied_msg);
+                put_data_to_osc_datalake(copied_msg);
+                //ret = pthread_create(&thread_id, NULL, put_data_to_osc_datalake, copied_msg);
             } else if (str3icmp(m, 'd', 'e', 'l')) {
-                ret = pthread_create(&thread_id, NULL, delete_data_from_osc_datalake, copied_msg);
+                delete_data_from_osc_datalake(copied_msg);
+                //ret = pthread_create(&thread_id, NULL, delete_data_from_osc_datalake, copied_msg);
             }
-            if (ret == 0) {
-                loga("[req_forward] Created put_data_to_osc_datalake thread");
-            } else {
-                loga("[req_forward] Failed to create put_data_to_osc_datalake thread");
-            }
+            //if (ret == 0) {
+            //    loga("[req_forward] Created put_data_to_osc_datalake thread");
+            //} else {
+            //    loga("[req_forward] Failed to create put_data_to_osc_datalake thread");
+            //}
         }
     }
 

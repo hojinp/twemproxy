@@ -373,16 +373,19 @@ void aws_delete_data_from_osc(char* key) {
         invalidate_key_in_packing(key);
     }
     oscm_delete_metadata(key);
-    Aws::S3::Model::DeleteObjectRequest request;
-    request.WithBucket(CACHE_BUCKET_NAME).WithKey(key);
-    Aws::S3::Model::DeleteObjectOutcome outcome = aws_s3_client_cache->DeleteObject(request);
-    if (!outcome.IsSuccess()) {
-        std::cerr << "Error: DeleteObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
-                  << std::flush;
-    } else {
-        std::cout << "Success: Object '" << key << "' is deleted from bucket '" << CACHE_BUCKET_NAME << "'.\n"
-                  << std::flush;
-    }
+    /** Because it's packing, don't send delete operation to OSC 
+     * 
+     *  Aws::S3::Model::DeleteObjectRequest request;
+     *  request.WithBucket(CACHE_BUCKET_NAME).WithKey(key);
+     *  Aws::S3::Model::DeleteObjectOutcome outcome = aws_s3_client_cache->DeleteObject(request);
+     *  if (!outcome.IsSuccess()) {
+     *      std::cerr << "Error: DeleteObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
+     *                << std::flush;
+     *  } else {
+     *      std::cout << "Success: Object '" << key << "' is deleted from bucket '" << CACHE_BUCKET_NAME << "'.\n"
+     *                << std::flush;
+     *  }
+     */
 }
 
 void aws_delete_data_from_datalake(char* key) {
