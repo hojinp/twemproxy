@@ -903,15 +903,17 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg) {
                     mctx->ctx = ctx;
                     mctx->conn = conn;
                     mctx->msg = msg;
-                    int ret = pthread_create(&thread_id, NULL, try_get_data_from_osc, mctx);
-                    if (ret == 0) {
-                        loga("[msg_send_chain=>try_get_data_from_osc] NC_OK");
-                        return NC_OK;
-                    } else {
-                        loga("[msg_send_chain=>try_get_data_from_osc] NC_ERROR");
-                        nc_free(mctx);
-                        return NC_ERROR;
-                    }
+                    try_get_data_from_osc(mctx);
+                    return NC_OK;
+                    //int ret = pthread_create(&thread_id, NULL, try_get_data_from_osc, mctx);
+                    //if (ret == 0) {
+                    //    loga("[msg_send_chain=>try_get_data_from_osc] NC_OK");
+                    //    return NC_OK;
+                    //} else {
+                    //    loga("[msg_send_chain=>try_get_data_from_osc] NC_ERROR");
+                    //    nc_free(mctx);
+                    //    return NC_ERROR;
+                    //}
                 }
             }
         }
