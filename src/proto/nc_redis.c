@@ -417,20 +417,40 @@ redis_parse_peer_msg_get_key(struct msg *r) {
     xbuf = STAILQ_FIRST(&r->peer->mhdr);
     ASSERT(r != NULL && r->peer != NULL && r->peer->owner != NULL);
     ASSERT(r->peer->mlen > 11);
-    char delimiters[] = "\t\r\n\v\f";
-    // for (int i = 0; i < r->peer->mlen; i++)
-    //     loga("%d %c", i, (char) xbuf->start[i]);
-    strtok((char *)xbuf->start, delimiters);  // total number of tokens
-    strtok(NULL, delimiters);                 // total number of chars for op
-    char *op = strtok(NULL, delimiters);      // op
-    if ((strlen(op) == 3) && (str3icmp(op, 'g', 'e', 't') || str3icmp(op, 'p', 'u', 't'))) {
+    int offset = 0;
+    int cnt = 0;
+    for (int i = 0; i < r->peer->mlen; i++) {
+        if ((uint8_t)xbuf->start[i] == (uint8_t) 10) {
+            if (++cnt == 2) {
+                offset = i + 1;
+                break;
+            }
+        }
+    }
+    char *op = xbuf->start + offset;
+    if (((uint8_t) (*(op + 3)) == 13) && (str3icmp(op, 'g', 'e', 't') || str3icmp(op, 'p', 'u', 't'))) {
         key = nc_alloc(MACARON_MAX_KEY_LEN * sizeof(char));
-        strtok(NULL, delimiters);                 // key length
-        char *keyStr = strtok(NULL, delimiters);  // key
-        ASSERT(strlen(keyStr) + 1 < MACARON_MAX_KEY_LEN);
-        strncpy(key, keyStr, strlen(keyStr));
-        key[strlen(keyStr)] = '\0';
-        loga("Key size: %lu, Key: %s", strlen(key), key);
+        cnt = 0;
+        for (int i = offset; i < r->peer->mlen; i++) {
+            if ((uint8_t)xbuf->start[i] == (uint8_t) 10) {
+                if (++cnt == 2) {
+                    offset = i + 1;
+                    break;
+                }
+            }
+        }
+        char *keyStr = xbuf->start + offset;
+        int keylen = 0;
+        for (int i = offset; i < r->peer->mlen; i++) {
+            if ((uint8_t)xbuf->start[i] == (uint8_t) 10) {
+                keylen = i - offset - 1;
+                break;
+            }
+        } 
+        ASSERT(keylen + 1 < MACARON_MAX_KEY_LEN);
+        strncpy(key, keyStr, keylen);
+        key[keylen] = '\0';
+        loga("Key size: %lu, Key: %s", keylen, key);
     } else {
         loga("ERROR: Can't parse this message correctly.");
     }

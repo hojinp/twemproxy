@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#define MACARON_MAX_KEY_LEN 20
+#define MACARON_MAX_KEY_LEN 32
 
 extern char *macaron_proxy_name;
 void init_macaron_proxy_name(const char *name);
