@@ -195,7 +195,7 @@ void *record_worker(void *arg) {
                 for (int i = *(ctx->wbeg); i != *(ctx->wend); i = (i + 1) % record_buffer_size) {
                     struct request_record *line = &(*ctx->buffer)[i];
                     if (line->op == (uint8_t)2) { /* delete */
-                        snprintf(linestr, 200, "%lu,%" PRIu8 ",%s\n", line->ts, line->op, line->key);
+                        snprintf(linestr, 200, "%lu,%" PRIu8 ",%s,%d\n", line->ts, line->op, line->key, 0);
                     } else { /* put, get*/
                         snprintf(linestr, 200, "%lu,%" PRIu8 ",%s,%" PRIu32 "\n", line->ts, line->op, line->key, line->size);
                     }
