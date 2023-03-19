@@ -374,7 +374,7 @@ req_recv_next(struct context *ctx, struct conn *conn, bool alloc) {
     struct msg *msg;
 
     ASSERT(conn->client && !conn->proxy);
-
+    
     if (conn->eof) {
         msg = conn->rmsg;
 
@@ -623,12 +623,9 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg) {
             } else if (str3icmp(m, 'd', 'e', 'l')) {
                 delete_data_from_osc_datalake(copied_msg);
                 //ret = pthread_create(&thread_id, NULL, delete_data_from_osc_datalake, copied_msg);
+            } else { // Unexpected type of request
+                ASSERT(false);
             }
-            //if (ret == 0) {
-            //    loga("[req_forward] Created put_data_to_osc_datalake thread");
-            //} else {
-            //    loga("[req_forward] Failed to create put_data_to_osc_datalake thread");
-            //}
         }
     }
 

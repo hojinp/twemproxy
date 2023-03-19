@@ -466,6 +466,8 @@ nc_test_conf(const struct instance *nci) {
     return true;
 }
 
+
+
 static rstatus_t
 nc_pre_run(struct instance *nci) {
     rstatus_t status;
@@ -509,7 +511,9 @@ void macaron_init() {
     aws_init_datalake();
     redis_init();
     oscm_init_lib();
+    record_init();
 }
+
 
 static void
 nc_post_run(struct instance *nci) {
@@ -533,6 +537,7 @@ void macaron_deinit() {
     aws_deinit_datalake();
     aws_deinit_sdk();
     deinit_macaron_proxy_name();
+    record_deinit();
 }
 
 static void
@@ -564,7 +569,7 @@ int main(int argc, char **argv) {
 
     status = nc_get_options(argc, argv, &nci);
     loga("ProxyName: %s", get_macaron_proxy_name());
-    
+
     if (status != NC_OK) {
         nc_show_usage();
         exit(1);
@@ -617,4 +622,3 @@ int main(int argc, char **argv) {
 
     exit(1);
 }
-

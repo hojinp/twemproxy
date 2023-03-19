@@ -429,7 +429,7 @@ redis_parse_peer_msg_get_key(struct msg *r) {
     }
     char *op = xbuf->start + offset;
     if (((uint8_t) (*(op + 3)) == 13) && (str3icmp(op, 'g', 'e', 't') || str3icmp(op, 'p', 'u', 't'))) {
-        key = nc_alloc(MACARON_MAX_KEY_LEN * sizeof(char));
+        key = nc_alloc((MACARON_MAX_KEY_LEN + 1) * sizeof(char));
         cnt = 0;
         for (int i = offset; i < r->peer->mlen; i++) {
             if ((uint8_t)xbuf->start[i] == (uint8_t) 10) {

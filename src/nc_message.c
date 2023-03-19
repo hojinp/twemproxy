@@ -24,6 +24,7 @@
 #include <redis/nc_redis.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <sys/uio.h>
 
 #if (IOV_MAX > 128)
@@ -117,6 +118,118 @@ static uint32_t nfree_msgq;      /* # free msg q */
 static struct msg_tqh free_msgq; /* free msg q */
 static struct rbtree tmo_rbt;    /* timeout rbtree */
 static struct rbnode tmo_rbs;    /* timeout rbtree sentinel */
+
+/* Record related variables and functions */
+
+static int record_buffer_size = 2000;
+static int record_buffer_wbeg = 0;           /* will be written to file from here */
+static int record_buffer_wend = 0;           /* will be written to file until here */
+static int record_buffer_curr = 0;           /* new records will be put here */
+static struct request_record *record_buffer; /* sets of records*/
+
+static pthread_t record_thread;
+static int record_alive = 1;
+struct record_ctx *rctx;
+
+void record_init() {
+    /* create record directory */
+    /* new: while writing to file / mid: copied from new to mid / old: already moved to MasterMaster */
+    loga("[record_init] mkdir mac_records");
+    char cmd1[] = "mkdir -p /tmp/mac_records/new";
+    char cmd2[] = "mkdir -p /tmp/mac_records/mid";
+    char cmd3[] = "mkdir -p /tmp/mac_records/old";
+    system(cmd1);
+    system(cmd2);
+    system(cmd3);
+
+    record_buffer = (struct request_record *)nc_alloc(sizeof(struct request_record) * record_buffer_size);
+    for (int i = 0; i < record_buffer_size; i++)
+        record_buffer[i].key = (char *)nc_alloc(sizeof(char) * (MACARON_MAX_KEY_LEN + 1));
+
+    rctx = (struct record_ctx *)nc_alloc(sizeof(struct record_ctx));
+    rctx->alive = &record_alive;
+    rctx->buffer = &record_buffer;
+    rctx->wbeg = &record_buffer_wbeg;
+    rctx->wend = &record_buffer_wend;
+    rctx->cend = &record_buffer_curr;
+    
+    pthread_create(&record_thread, NULL, record_worker, NULL);
+}
+
+void record_deinit() {
+    loga("[record_deinit] deinitialize record related stuffs...");
+    pthread_join(record_thread, NULL);
+    for (int i = 0; i < record_buffer_size; i++)
+        nc_free((*rctx->buffer)[i].key);
+    nc_free(*rctx->buffer);
+    nc_free(rctx);
+
+    for (int i = 0; i < record_buffer_size; i++)
+        nc_free(record_buffer[i].key);
+    nc_free(record_buffer);
+}
+
+float get_timediff_sec(struct timeval t0, struct timeval t1) {
+    return t1.tv_sec - t0.tv_sec;
+}
+
+void *record_worker(void *arg) {
+    struct record_ctx *ctx = rctx;
+    int record_interval_sec = 60;  // 60 second
+    struct timeval record_time, curr_time;
+    gettimeofday(&record_time, NULL);
+
+    int record_idx = 1;
+    char *ofname = nc_alloc(sizeof(char) * 100);
+    char *linestr = nc_alloc(sizeof(char) * 200);
+    while (*(ctx->alive) == 1) {
+        gettimeofday(&curr_time, NULL);
+        int timediff_sec = (int)get_timediff_sec(record_time, curr_time);
+        if (timediff_sec > record_interval_sec) {  // record requests to the file
+            *(ctx->wend) = *(ctx->cend);
+            if (*(ctx->wbeg) == *(ctx->wend)) {  // nothing to write
+            } else {
+                sleep(1);  // XXX: wait for the last record to be fully written
+                snprintf(ofname, 100, "/tmp/mac_records/new/%s-%d.log", get_macaron_proxy_name(), record_idx++);
+                FILE *ofp = fopen(ofname, "w");
+                for (int i = *(ctx->wbeg); i != *(ctx->wend); i = (i + 1) % record_buffer_size) {
+                    struct request_record *line = &(*ctx->buffer)[i];
+                    if (line->op == (uint8_t)2) { /* delete */
+                        snprintf(linestr, 200, "%lu,%" PRIu8 ",%s\n", line->ts, line->op, line->key);
+                    } else { /* put, get*/
+                        snprintf(linestr, 200, "%lu,%" PRIu8 ",%s,%" PRIu32 "\n", line->ts, line->op, line->key, line->size);
+                    }
+                    fwrite(linestr, strlen(linestr), 1, ofp);
+                }
+                fclose(ofp);
+            }
+            *(ctx->wbeg) = *(ctx->wend);
+
+            // update the new record time
+            record_time.tv_sec = curr_time.tv_sec;
+            record_time.tv_usec = curr_time.tv_usec;
+        }
+        sleep(1);
+    }
+    nc_free(ofname);
+    nc_free(linestr);
+    pthread_exit(NULL);
+}
+
+void add_record(uint8_t op, char *key, size_t keylen, size_t vallen) {
+    int next_record_buffer_curr = (record_buffer_curr + 1) % record_buffer_size;
+    ASSERT(next_record_buffer_curr != record_buffer_wbeg);
+    struct timeval curr_time;
+    gettimeofday(&curr_time, NULL);
+    record_buffer[record_buffer_curr].ts = (unsigned long)curr_time.tv_sec * (unsigned long)1000 + (unsigned long)(curr_time.tv_usec / 1000);
+    record_buffer[record_buffer_curr].op = (uint8_t)op;  // PUT: 0, GET: 1, DELETE: 2
+    strncpy(record_buffer[record_buffer_curr].key, key, keylen);
+    record_buffer[record_buffer_curr].key[keylen] = '\0';
+    record_buffer[record_buffer_curr].size = vallen;
+    record_buffer_curr = next_record_buffer_curr;
+}
+
+/* End of record related variables and functions*/
 
 #define DEFINE_ACTION(_name) string(#_name),
 static const struct string msg_type_strings[] = {
@@ -741,7 +854,7 @@ try_get_data_from_osc(void *mctx_arg) {
     size_t mlen;                         /* current mbuf data length */
     struct iovec *ciov, iov[NC_IOV_MAX]; /* current iovec */
     struct array sendv;                  /* send iovec */
-    size_t nsend;                 /* bytes to send; bytes sent */
+    size_t nsend;                        /* bytes to send; bytes sent */
     size_t limit;                        /* bytes to send limit */
 
     struct macaron_ctx *mctx = (struct macaron_ctx *)mctx_arg;
@@ -765,7 +878,7 @@ try_get_data_from_osc(void *mctx_arg) {
         new_msg[0] = '$';
         new_msg[new_msg_len] = '\0';
         offset += 1;
-        snprintf(new_msg + offset, (size_t) new_msg_len, "%d", oscm_md->size);
+        snprintf(new_msg + offset, (size_t)new_msg_len, "%d", oscm_md->size);
         offset += value_str_len;
         new_msg[offset] = '\r';
         new_msg[offset + 1] = '\n';
@@ -789,6 +902,7 @@ try_get_data_from_osc(void *mctx_arg) {
 
         conn->smsg = NULL;
         conn_sendv(conn, &sendv, nsend);
+        add_record((uint8_t)1, key, strlen(key), oscm_md->size);
 
         // Promote data to Redis server
         redis_put_data(key, new_msg + data_offset, oscm_md->size);
@@ -816,6 +930,7 @@ try_get_data_from_osc(void *mctx_arg) {
 
             conn->smsg = NULL;
             conn_sendv(conn, &sendv, nsend);
+            add_record((uint8_t)1, key, strlen(key), data_size);
 
             // Promote data to OSC and Redis server
             aws_put_data_to_osc_packing(key, new_msg + data_offset, data_size);
@@ -849,6 +964,7 @@ try_get_data_from_osc(void *mctx_arg) {
             loga("[try_get_data_from_datalake] nsend: %zu", nsend);
             conn->smsg = NULL;
             conn_sendv(conn, &sendv, nsend);
+            add_record((uint8_t)1, key, strlen(key), 0);
         }
     }
     nc_free(key);
@@ -891,6 +1007,39 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg) {
         loga("[nc_message.msg_send_chain] msg->mlen = %d", msg->mlen);
         loga("[nc_message.msg_send_chain] msg->peer->mlen = %d", msg->peer->mlen);
         ASSERT(msg->redis); /* We implemented Macaron for only Redis */
+        struct msg *pmsg = msg->peer;
+        if (pmsg != NULL && (pmsg->type == 29 || pmsg->type == 50 || pmsg->type == 63)) {  // Get: 50, Del: 29, Set: 63
+            ASSERT(array_n(pmsg->keys) > 0);
+            struct keypos *kpos = array_get(pmsg->keys, 0);
+            uint8_t *key = kpos->start;
+            uint32_t keylen = (uint32_t)(kpos->end - kpos->start);
+            loga("[msg_send_chain] MsgTypeEnum: %d, Keylen: %d, key: %.*s", pmsg->type, keylen, keylen, key);
+            if (pmsg->type == 63) {  // PUT
+                uint8_t *last_pos = kpos->end + 2;
+                while ((uint8_t)(*last_pos) != 10)
+                    last_pos++;
+                uint32_t data_size = pmsg->mlen - 19 - keylen - log10(keylen) - (last_pos - kpos->end);
+                loga("[msg_send_chain] Put mlen: %d, data size: %zu", pmsg->mlen, data_size);
+                add_record((uint8_t)0, key, keylen, data_size);
+            } else if (pmsg->type == 50) {  // GET
+                // loga("[msg_send_chain] Get mlen: %d, data size: %zu", pmsg->mlen, data_size);
+                xbuf = STAILQ_FIRST(&msg->mhdr);
+                if (str3icmp(xbuf->start, '$', '-', '1')) {
+                    loga("[msg_send_chain] Get miss for %.*s, go next", keylen, key);
+                } else {
+                    uint8_t *last_pos = xbuf->start;
+                    while ((uint8_t)(*last_pos) != 10)
+                        last_pos++;
+                    size_t data_size = msg->mlen - (last_pos - xbuf->start + 3);
+                    loga("[msg_send_chain] Get mlen: %d, data size: %zu", msg->mlen, data_size);
+                    add_record((uint8_t)1, key, keylen, data_size);
+                }
+            } else if (pmsg->type == 29) {
+                loga("[msg_send_chain] Delete for key: %.*s", keylen, key);
+                add_record((uint8_t)2, key, keylen, 0);
+            }
+        }
+
         if (msg->mlen == 5 && msg->peer->mlen > 11) {
             xbuf = STAILQ_FIRST(&msg->mhdr);
             if (str3icmp(xbuf->start, '$', '-', '1')) {
@@ -905,15 +1054,15 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg) {
                     mctx->msg = msg;
                     try_get_data_from_osc(mctx);
                     return NC_OK;
-                    //int ret = pthread_create(&thread_id, NULL, try_get_data_from_osc, mctx);
-                    //if (ret == 0) {
-                    //    loga("[msg_send_chain=>try_get_data_from_osc] NC_OK");
-                    //    return NC_OK;
-                    //} else {
-                    //    loga("[msg_send_chain=>try_get_data_from_osc] NC_ERROR");
-                    //    nc_free(mctx);
-                    //    return NC_ERROR;
-                    //}
+                    // int ret = pthread_create(&thread_id, NULL, try_get_data_from_osc, mctx);
+                    // if (ret == 0) {
+                    //     loga("[msg_send_chain=>try_get_data_from_osc] NC_OK");
+                    //     return NC_OK;
+                    // } else {
+                    //     loga("[msg_send_chain=>try_get_data_from_osc] NC_ERROR");
+                    //     nc_free(mctx);
+                    //     return NC_ERROR;
+                    // }
                 }
             }
         }

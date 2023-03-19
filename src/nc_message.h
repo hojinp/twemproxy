@@ -308,6 +308,21 @@ struct macaron_ctx {
     struct msg *msg;
 };
 
+struct request_record {
+    unsigned long ts;
+    uint8_t op;
+    char *key;
+    uint32_t size;
+};
+
+struct record_ctx {
+    int *alive;
+    struct request_record **buffer;
+    int *wbeg;
+    int *wend;
+    int *cend;
+};
+
 TAILQ_HEAD(msg_tqh, msg);
 
 struct msg *msg_tmo_min(void);
@@ -355,5 +370,13 @@ struct msg *rsp_recv_next(struct context *ctx, struct conn *conn, bool alloc);
 void rsp_recv_done(struct context *ctx, struct conn *conn, struct msg *msg, struct msg *nmsg);
 struct msg *rsp_send_next(struct context *ctx, struct conn *conn);
 void rsp_send_done(struct context *ctx, struct conn *conn, struct msg *msg);
+
+void record_init(void);
+void record_deinit(void);
+float get_timediff_sec(struct timeval t0, struct timeval t1);
+void add_record(uint8_t op, char *key, size_t keylen, size_t vallen);
+void *record_worker(void *arg);
+//void record_worker();
+//void record_worker(struct record_ctx *ctx);
 
 #endif
