@@ -341,7 +341,7 @@ conn_recv(struct conn *conn, void *buf, size_t size)
 
     for (;;) {
         n = nc_read(conn->sd, buf, size);
-        loga("[conn_recv] after nc_read, print buf char array\n%.*s", (int) n, (char *) buf);
+        //loga("[conn_recv] after nc_read, print buf char array\n%.*s", (int) n, (char *) buf);
 
         log_debug(LOG_VERB, "recv on sd %d %zd of %zu", conn->sd, n, size);
 

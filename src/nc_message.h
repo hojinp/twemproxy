@@ -309,10 +309,16 @@ struct macaron_ctx {
 };
 
 struct request_record {
-    unsigned long ts;
-    uint8_t op;
-    char *key;
-    uint32_t size;
+    unsigned long ts;       // timestamp (ms)
+    uint8_t op;             // Put: 0, Get: 1, Delete: 2
+    char *key;              // object id
+    uint32_t size;          // object size (bytes)
+    uint32_t imc;           // imc latency (us)
+    uint32_t oscm;          // oscm latency (us)
+    uint32_t osc;           // osc latency (us)
+    uint32_t dl;            // datalake latency (us)
+    uint32_t end;           // end latency (us)
+    uint8_t get_src;        // which source the data is from (IMC: 0, OSC: 1, Datalake: 2)
 };
 
 struct record_ctx {
@@ -374,7 +380,8 @@ void rsp_send_done(struct context *ctx, struct conn *conn, struct msg *msg);
 void record_init(void);
 void record_deinit(void);
 float get_timediff_sec(struct timeval t0, struct timeval t1);
-void add_record(uint8_t op, char *key, size_t keylen, size_t vallen);
+void add_record(uint8_t op, char *key, size_t keylen, size_t vallen, uint32_t imc_latency, uint32_t oscm_latency,
+                uint32_t osc_latency, uint32_t dl_latency, uint32_t end_latency, uint8_t get_src);
 void *record_worker(void *arg);
 //void record_worker();
 //void record_worker(struct record_ctx *ctx);

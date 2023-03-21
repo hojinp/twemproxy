@@ -152,7 +152,7 @@ void record_init() {
     rctx->wbeg = &record_buffer_wbeg;
     rctx->wend = &record_buffer_wend;
     rctx->cend = &record_buffer_curr;
-    
+
     pthread_create(&record_thread, NULL, record_worker, NULL);
 }
 
@@ -173,6 +173,10 @@ float get_timediff_sec(struct timeval t0, struct timeval t1) {
     return t1.tv_sec - t0.tv_sec;
 }
 
+uint32_t get_elapsed_time(struct msg *msg) {
+    return (uint32_t)(nc_usec_now() - msg->start_ts);
+}
+
 void *record_worker(void *arg) {
     struct record_ctx *ctx = rctx;
     int record_interval_sec = 60;  // 60 second
@@ -181,27 +185,31 @@ void *record_worker(void *arg) {
 
     int record_idx = 1;
     char *ofname = nc_alloc(sizeof(char) * 100);
-    char *linestr = nc_alloc(sizeof(char) * 200);
+    char *linestr = nc_alloc(sizeof(char) * 300);
     while (*(ctx->alive) == 1) {
         gettimeofday(&curr_time, NULL);
         int timediff_sec = (int)get_timediff_sec(record_time, curr_time);
         if (timediff_sec > record_interval_sec) {  // record requests to the file
+            loga("[record_worker] Start writing proxy access log");
             *(ctx->wend) = *(ctx->cend);
             if (*(ctx->wbeg) == *(ctx->wend)) {  // nothing to write
             } else {
                 sleep(1);  // XXX: wait for the last record to be fully written
                 snprintf(ofname, 100, "/tmp/mac_records/new/%s-%d.log", get_macaron_proxy_name(), record_idx++);
                 FILE *ofp = fopen(ofname, "w");
+                char header[] = "timestamp(ms),op,key,size,imc(us),oscm(us),osc(us),dl(us),end(us),getsrc\n";
+                fwrite(header, strlen(header), 1, ofp);
                 for (int i = *(ctx->wbeg); i != *(ctx->wend); i = (i + 1) % record_buffer_size) {
                     struct request_record *line = &(*ctx->buffer)[i];
-                    if (line->op == (uint8_t)2) { /* delete */
-                        snprintf(linestr, 200, "%lu,%" PRIu8 ",%s,%d\n", line->ts, line->op, line->key, 0);
-                    } else { /* put, get*/
-                        snprintf(linestr, 200, "%lu,%" PRIu8 ",%s,%" PRIu32 "\n", line->ts, line->op, line->key, line->size);
-                    }
+                    snprintf(linestr, 300, "%lu,%" PRIu8 ",%s,%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu8 "\n",
+                             line->ts, line->op, line->key, line->size, line->imc, line->oscm, line->osc, line->dl, line->end, line->get_src);
                     fwrite(linestr, strlen(linestr), 1, ofp);
                 }
                 fclose(ofp);
+
+                char cmd[200];
+                snprintf(cmd, 200, "mv %s /tmp/mac_records/mid", ofname);
+                system(cmd);
             }
             *(ctx->wbeg) = *(ctx->wend);
 
@@ -216,16 +224,25 @@ void *record_worker(void *arg) {
     pthread_exit(NULL);
 }
 
-void add_record(uint8_t op, char *key, size_t keylen, size_t vallen) {
+void add_record(uint8_t op, char *key, size_t keylen, size_t vallen, uint32_t imc_latency, uint32_t oscm_latency,
+                uint32_t osc_latency, uint32_t dl_latency, uint32_t end_latency, uint8_t get_src) {
     int next_record_buffer_curr = (record_buffer_curr + 1) % record_buffer_size;
     ASSERT(next_record_buffer_curr != record_buffer_wbeg);
     struct timeval curr_time;
     gettimeofday(&curr_time, NULL);
-    record_buffer[record_buffer_curr].ts = (unsigned long)curr_time.tv_sec * (unsigned long)1000 + (unsigned long)(curr_time.tv_usec / 1000);
-    record_buffer[record_buffer_curr].op = (uint8_t)op;  // PUT: 0, GET: 1, DELETE: 2
+    record_buffer[record_buffer_curr].ts =
+        (unsigned long)curr_time.tv_sec * (unsigned long)1000 + (unsigned long)(curr_time.tv_usec / 1000);  // ms
+    record_buffer[record_buffer_curr].op = (uint8_t)op;                                                     // PUT: 0, GET: 1, DELETE: 2
     strncpy(record_buffer[record_buffer_curr].key, key, keylen);
     record_buffer[record_buffer_curr].key[keylen] = '\0';
     record_buffer[record_buffer_curr].size = vallen;
+    record_buffer[record_buffer_curr].imc = imc_latency;
+    record_buffer[record_buffer_curr].oscm = oscm_latency;
+    record_buffer[record_buffer_curr].osc = osc_latency;
+    record_buffer[record_buffer_curr].dl = dl_latency;
+    record_buffer[record_buffer_curr].end = end_latency;
+    record_buffer[record_buffer_curr].get_src = get_src;
+
     record_buffer_curr = next_record_buffer_curr;
 }
 
@@ -846,8 +863,8 @@ try_get_data_from_datalake(char *key, char **new_msg, int *new_msg_len, int *dat
     return ret;
 }
 
-static void *
-try_get_data_from_osc(void *mctx_arg) {
+static void
+try_get_data_from_osc(struct context *ctx, struct conn *conn, struct msg *msg) {
     loga("[try_get_data_from_osc] Start");
 
     struct mbuf *mbuf, *nbuf;            /* current and next mbuf */
@@ -857,15 +874,20 @@ try_get_data_from_osc(void *mctx_arg) {
     size_t nsend;                        /* bytes to send; bytes sent */
     size_t limit;                        /* bytes to send limit */
 
-    struct macaron_ctx *mctx = (struct macaron_ctx *)mctx_arg;
-    struct context *ctx = mctx->ctx;
-    struct conn *conn = mctx->conn;
-    struct msg *msg = mctx->msg;
-    nc_free(mctx);
+    // Data to be recorded
+    uint32_t imc_latency = get_elapsed_time(msg), oscm_latency = 0, osc_latency = 0,
+             dl_latency = 0, end_latency = 0;
+    size_t record_data_size;
+    uint32_t curr_elapsed_time = imc_latency, new_elapsed_time;
+    uint8_t get_src;
 
     char *key = redis_parse_peer_msg_get_key(msg);
     ASSERT(key != NULL);
     struct oscm_result *oscm_md = oscm_get_metadata(key);
+    new_elapsed_time = get_elapsed_time(msg);
+    oscm_latency = new_elapsed_time - curr_elapsed_time;
+    curr_elapsed_time = new_elapsed_time;
+
     ASSERT(oscm_md != NULL);
     if (oscm_md->exist) {
         // If data is in the Object Storage Cache, get data from OSC
@@ -891,6 +913,9 @@ try_get_data_from_osc(void *mctx_arg) {
         offset += 2;
         ASSERT(offset == new_msg_len);
         loga("new_msg:\n%.*s", new_msg_len, new_msg);
+        new_elapsed_time = get_elapsed_time(msg);
+        osc_latency = new_elapsed_time - curr_elapsed_time;
+        curr_elapsed_time = new_elapsed_time;
 
         // Send new_msg to client
         array_set(&sendv, iov, sizeof(iov[0]), NC_IOV_MAX);
@@ -902,7 +927,9 @@ try_get_data_from_osc(void *mctx_arg) {
 
         conn->smsg = NULL;
         conn_sendv(conn, &sendv, nsend);
-        add_record((uint8_t)1, key, strlen(key), oscm_md->size);
+        end_latency = get_elapsed_time(msg);
+        record_data_size = oscm_md->size;
+        get_src = (uint8_t)1;
 
         // Promote data to Redis server
         redis_put_data(key, new_msg + data_offset, oscm_md->size);
@@ -915,6 +942,10 @@ try_get_data_from_osc(void *mctx_arg) {
         int new_msg_len = 0;
         int data_offset, data_size;
         int exists = try_get_data_from_datalake(key, &new_msg, &new_msg_len, &data_offset, &data_size);
+        new_elapsed_time = get_elapsed_time(msg);
+        dl_latency = new_elapsed_time - curr_elapsed_time;
+        curr_elapsed_time = new_elapsed_time;
+        get_src = (uint8_t)2;
         if (exists) {
             // data is in datalake.
             loga("[try_get_data_from_datalake] Data is in the datalake.");
@@ -930,7 +961,8 @@ try_get_data_from_osc(void *mctx_arg) {
 
             conn->smsg = NULL;
             conn_sendv(conn, &sendv, nsend);
-            add_record((uint8_t)1, key, strlen(key), data_size);
+            end_latency = get_elapsed_time(msg);
+            record_data_size = data_size;
 
             // Promote data to OSC and Redis server
             aws_put_data_to_osc_packing(key, new_msg + data_offset, data_size);
@@ -964,9 +996,12 @@ try_get_data_from_osc(void *mctx_arg) {
             loga("[try_get_data_from_datalake] nsend: %zu", nsend);
             conn->smsg = NULL;
             conn_sendv(conn, &sendv, nsend);
-            add_record((uint8_t)1, key, strlen(key), 0);
+            end_latency = get_elapsed_time(msg);
+            record_data_size = 0;
         }
     }
+    add_record((uint8_t)1, key, strlen(key), record_data_size, imc_latency, oscm_latency, osc_latency, dl_latency,
+               end_latency, get_src);
     nc_free(key);
     nc_free(oscm_md);
 
@@ -981,8 +1016,6 @@ try_get_data_from_osc(void *mctx_arg) {
 
     ASSERT(mbuf == NULL);
     conn->send_done(ctx, conn, msg);
-
-    return NULL;
 }
 
 static rstatus_t
@@ -996,77 +1029,6 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg) {
     size_t nsend, nsent;                 /* bytes to send; bytes sent */
     size_t limit;                        /* bytes to send limit */
     ssize_t n;                           /* bytes sent by sendv */
-
-    struct mbuf *xbuf;        /* mbuf to be used for "$-1" checker (Macaron) */
-    pthread_t thread_id;      /* thread id to be used for reaching out OSC/ROS */
-    struct macaron_ctx *mctx; /* macaron_ctx that have data of related information */
-
-    /* Macaron: if there is no data in the memcached server, reach out to the local/remote object storage */
-    if (msg != NULL && msg->peer != NULL && msg->peer->owner != NULL) {
-        loga("[nc_message.msg_send_chain] msg->peer->owner->sd = %d", msg->peer->owner->sd);
-        loga("[nc_message.msg_send_chain] msg->mlen = %d", msg->mlen);
-        loga("[nc_message.msg_send_chain] msg->peer->mlen = %d", msg->peer->mlen);
-        ASSERT(msg->redis); /* We implemented Macaron for only Redis */
-        struct msg *pmsg = msg->peer;
-        if (pmsg != NULL && (pmsg->type == 29 || pmsg->type == 50 || pmsg->type == 63)) {  // Get: 50, Del: 29, Set: 63
-            ASSERT(array_n(pmsg->keys) > 0);
-            struct keypos *kpos = array_get(pmsg->keys, 0);
-            uint8_t *key = kpos->start;
-            uint32_t keylen = (uint32_t)(kpos->end - kpos->start);
-            loga("[msg_send_chain] MsgTypeEnum: %d, Keylen: %d, key: %.*s", pmsg->type, keylen, keylen, key);
-            if (pmsg->type == 63) {  // PUT
-                uint8_t *last_pos = kpos->end + 2;
-                while ((uint8_t)(*last_pos) != 10)
-                    last_pos++;
-                uint32_t data_size = pmsg->mlen - 19 - keylen - log10(keylen) - (last_pos - kpos->end);
-                loga("[msg_send_chain] Put mlen: %d, data size: %zu", pmsg->mlen, data_size);
-                add_record((uint8_t)0, key, keylen, data_size);
-            } else if (pmsg->type == 50) {  // GET
-                // loga("[msg_send_chain] Get mlen: %d, data size: %zu", pmsg->mlen, data_size);
-                xbuf = STAILQ_FIRST(&msg->mhdr);
-                if (str3icmp(xbuf->start, '$', '-', '1')) {
-                    loga("[msg_send_chain] Get miss for %.*s, go next", keylen, key);
-                } else {
-                    uint8_t *last_pos = xbuf->start;
-                    while ((uint8_t)(*last_pos) != 10)
-                        last_pos++;
-                    size_t data_size = msg->mlen - (last_pos - xbuf->start + 3);
-                    loga("[msg_send_chain] Get mlen: %d, data size: %zu", msg->mlen, data_size);
-                    add_record((uint8_t)1, key, keylen, data_size);
-                }
-            } else if (pmsg->type == 29) {
-                loga("[msg_send_chain] Delete for key: %.*s", keylen, key);
-                add_record((uint8_t)2, key, keylen, 0);
-            }
-        }
-
-        if (msg->mlen == 5 && msg->peer->mlen > 11) {
-            xbuf = STAILQ_FIRST(&msg->mhdr);
-            if (str3icmp(xbuf->start, '$', '-', '1')) {
-                xbuf = STAILQ_FIRST(&msg->peer->mhdr);
-                // for (int i = 0; i < msg->peer->mlen; i++)
-                //     loga("%d %c", i, (char) xbuf->start[i]);
-                if (str3icmp((uint8_t *)(&(xbuf->start[8])), 'g', 'e', 't')) {
-                    loga("[msg_send_chain] Failed to retrieve data: no such data is in the Redis server.");
-                    mctx = nc_alloc(sizeof(*mctx));
-                    mctx->ctx = ctx;
-                    mctx->conn = conn;
-                    mctx->msg = msg;
-                    try_get_data_from_osc(mctx);
-                    return NC_OK;
-                    // int ret = pthread_create(&thread_id, NULL, try_get_data_from_osc, mctx);
-                    // if (ret == 0) {
-                    //     loga("[msg_send_chain=>try_get_data_from_osc] NC_OK");
-                    //     return NC_OK;
-                    // } else {
-                    //     loga("[msg_send_chain=>try_get_data_from_osc] NC_ERROR");
-                    //     nc_free(mctx);
-                    //     return NC_ERROR;
-                    // }
-                }
-            }
-        }
-    }
 
     TAILQ_INIT(&send_msgq);
 
@@ -1085,31 +1047,78 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg) {
     for (;;) {
         ASSERT(conn->smsg == msg);
 
-        TAILQ_INSERT_TAIL(&send_msgq, msg, m_tqe);
-
-        for (mbuf = STAILQ_FIRST(&msg->mhdr);
-             mbuf != NULL && array_n(&sendv) < NC_IOV_MAX && nsend < limit;
-             mbuf = nbuf) {
-            nbuf = STAILQ_NEXT(mbuf, next);
-
-            if (mbuf_empty(mbuf)) {
-                continue;
+        /* Macaron: if there is no data in the Redis server, reach out to the local/remote object storage */
+        bool insert_flag = true;
+        struct msg *pmsg = msg->peer;
+        if (msg != NULL && pmsg != NULL && pmsg->owner != NULL) {
+            ASSERT(msg->redis);       /* We implemented Macaron for only Redis */
+            struct mbuf *xbuf = NULL; /* mbuf to be used for "$-1" checker (Macaron) */
+            if (pmsg->type == 50) {
+                xbuf = STAILQ_FIRST(&msg->mhdr);
+                if (str3icmp(xbuf->start, '$', '-', '1')) {
+                    loga("[msg_send_chain] Failed to retrieve data: no such data is in the Redis server.");
+                    try_get_data_from_osc(ctx, conn, msg);
+                    insert_flag = false;
+                }
             }
 
-            mlen = mbuf_length(mbuf);
-            if ((nsend + mlen) > limit) {
-                mlen = limit - nsend;
+            if (insert_flag && (pmsg->type == 29 || pmsg->type == 50 || pmsg->type == 63)) {  // Get: 50, Del: 29, Set: 63
+                ASSERT(array_n(pmsg->keys) > 0);
+                struct keypos *kpos = array_get(pmsg->keys, 0);
+                uint8_t *key = kpos->start;
+                uint32_t keylen = (uint32_t)(kpos->end - kpos->start);
+                loga("[msg_send_chain] MsgTypeEnum: %d, Keylen: %d, key: %.*s", pmsg->type, keylen, keylen, key);
+                if (pmsg->type == 63) {  // PUT
+                    uint8_t *last_pos = kpos->end + 2;
+                    while ((uint8_t)(*last_pos) != 10)
+                        last_pos++;
+                    uint32_t data_size = pmsg->mlen - 19 - keylen - log10(keylen) - (last_pos - kpos->end);
+                    loga("[msg_send_chain] Put mlen: %d, data size: %zu", pmsg->mlen, data_size);
+                    add_record((uint8_t)0, key, keylen, data_size, 0, 0, 0, 0, 0, (uint8_t)0);
+                } else if (pmsg->type == 50) {  // GET
+                    // loga("[msg_send_chain] Get mlen: %d, data size: %zu", pmsg->mlen, data_size);
+                    ASSERT(xbuf != NULL);
+                    uint8_t *last_pos = xbuf->start;
+                    while ((uint8_t)(*last_pos) != 10)
+                        last_pos++;
+                    size_t data_size = msg->mlen - (last_pos - xbuf->start + 3);
+                    loga("[msg_send_chain] Get mlen: %d, data size: %zu", msg->mlen, data_size);
+                    uint32_t elapsed_time = get_elapsed_time(msg);
+                    add_record((uint8_t)1, key, keylen, data_size, elapsed_time, 0, 0, 0, elapsed_time, 0);
+                } else if (pmsg->type == 29) {
+                    loga("[msg_send_chain] Delete for key: %.*s", keylen, key);
+                    add_record((uint8_t)2, key, keylen, 0, 0, 0, 0, 0, 0, 0);
+                }
             }
-
-            ciov = array_push(&sendv);
-            ciov->iov_base = mbuf->pos;
-            ciov->iov_len = mlen;
-
-            nsend += mlen;
         }
 
-        if (array_n(&sendv) >= NC_IOV_MAX || nsend >= limit) {
-            break;
+        if (insert_flag) {
+            TAILQ_INSERT_TAIL(&send_msgq, msg, m_tqe);
+
+            for (mbuf = STAILQ_FIRST(&msg->mhdr);
+                 mbuf != NULL && array_n(&sendv) < NC_IOV_MAX && nsend < limit;
+                 mbuf = nbuf) {
+                nbuf = STAILQ_NEXT(mbuf, next);
+
+                if (mbuf_empty(mbuf)) {
+                    continue;
+                }
+
+                mlen = mbuf_length(mbuf);
+                if ((nsend + mlen) > limit) {
+                    mlen = limit - nsend;
+                }
+
+                ciov = array_push(&sendv);
+                ciov->iov_base = mbuf->pos;
+                ciov->iov_len = mlen;
+
+                nsend += mlen;
+            }
+
+            if (array_n(&sendv) >= NC_IOV_MAX || nsend >= limit) {
+                break;
+            }
         }
 
         msg = conn->send_next(ctx, conn);

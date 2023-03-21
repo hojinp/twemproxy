@@ -10,6 +10,7 @@
 #include <math.h>
 #include <nc_core.h>
 #include <pthread.h>
+#include <sys/time.h>
 
 #include <chrono>
 #include <cstdlib>
@@ -41,15 +42,37 @@ struct packing_info* packing_infos;  // metadata of each pending packings
 std::mutex packing_idx_mutex;
 std::mutex packing_mutex;
 
+/* Utility functions */
+int64_t
+get_usec_now(void) {
+    struct timeval now;
+    int64_t usec;
+    int status;
+
+    status = gettimeofday(&now, NULL);
+    if (status < 0) {
+        assert(false);
+    }
+
+    usec = (int64_t)now.tv_sec * 1000000LL + (int64_t)now.tv_usec;
+
+    return usec;
+}
+
+int64_t
+get_msec_now(void) {
+    return get_usec_now() / 1000LL;
+}
+/* End of utility functions */
 
 void aws_init_sdk() {
-    std::cout << "[aws_init_sdk] Initialize AWS SDK c++\n"
+    std::cerr << "[aws_init_sdk] Initialize AWS SDK c++\n"
               << std::flush;
     Aws::InitAPI(sdk_options);
 }
 
 void aws_init_osc() {
-    std::cout << "[aws_init_osc] Create OSC bucket: " << CACHE_BUCKET_NAME << "\n"
+    std::cerr << "[aws_init_osc] Create OSC bucket: " << CACHE_BUCKET_NAME << "\n"
               << std::flush;
 
     // Initialize AWS Client for cache bucket
@@ -57,6 +80,7 @@ void aws_init_osc() {
     credentials.SetAWSAccessKeyId(std::getenv("AWS_ACCESS_KEY_ID"));
     credentials.SetAWSSecretKey(std::getenv("AWS_SECRET_ACCESS_KEY"));
     Aws::Client::ClientConfiguration configurations;
+    configurations.region = "us-east-1";
     aws_s3_client_cache = new Aws::S3::S3Client(credentials, configurations);
 
     // Create a cache bucket
@@ -65,16 +89,16 @@ void aws_init_osc() {
     Aws::S3::Model::CreateBucketOutcome outcome = aws_s3_client_cache->CreateBucket(request);
     if (!outcome.IsSuccess()) {
         auto err = outcome.GetError();
-        std::cout << "Error: CreateCacheBucket: " << err.GetExceptionName() << ": " << err.GetMessage() << std::endl;
+        std::cerr << "Error: CreateCacheBucket: " << err.GetExceptionName() << ": " << err.GetMessage() << std::endl;
         exit(EXIT_FAILURE);
     } else {
-        std::cout << "Created bucket " << CACHE_BUCKET_NAME << " in the specified AWS Region." << std::endl;
+        std::cerr << "Created bucket " << CACHE_BUCKET_NAME << " in the specified AWS Region." << std::endl;
     }
 
     // Start the OSC packing background thread
     int ret = pthread_create(&packing_thread, NULL, &packing_worker, NULL);
     if (ret != 0) {
-        std::cout << "Error: pthread_create() failed\n"
+        std::cerr << "Error: pthread_create() failed\n"
                   << std::flush;
         exit(EXIT_FAILURE);
     }
@@ -108,7 +132,7 @@ void packing_info_to_str(struct packing_info& p_info, char** p_info_str) {
 
 void* packing_worker(void*) {
     int const time_interval = 100;
-    std::cout << "[packing_worker] Started, time interval: " << time_interval << "\n"
+    std::cerr << "[packing_worker] Started, time interval: " << time_interval << "\n"
               << std::flush;
 
     // initalize packing related resources
@@ -126,16 +150,16 @@ void* packing_worker(void*) {
         packing_infos[i].item_cnt = 0;
     }
     get_next_packing_id(&packing_ids[0]);
-    std::cout << "[packing_worker] First packing id: " << packing_ids[0] << "\n"
+    std::cerr << "[packing_worker] First packing id: " << packing_ids[0] << "\n"
               << std::flush;
 
     // run packing iterations
     while (packing_thread_flag) {
-        // std::cout << "[packing_worker] check" << std::endl;
+        // std::cerr << "[packing_worker] check" << std::endl;
         while (packing_ptr != packing_end) {
-            std::cout << "[packing_worker] New packing block to write to OSC is prepared. Start writing to OSC the packed object" << std::endl;
-            std::cout << "[packing_worker] Packing ID: " << packing_ids[packing_ptr] << std::endl;
-            std::cout << "[packing_worker] Packing buffer size: " << packing_infos[packing_ptr].data_size << std::endl;
+            std::cerr << "[packing_worker] New packing block to write to OSC is prepared. Start writing to OSC the packed object" << std::endl;
+            std::cerr << "[packing_worker] Packing ID: " << packing_ids[packing_ptr] << std::endl;
+            std::cerr << "[packing_worker] Packing buffer size: " << packing_infos[packing_ptr].data_size << std::endl;
             aws_put_data_to_osc(packing_ids[packing_ptr], packing_buffers[packing_ptr], packing_infos[packing_ptr].data_size);
             char* packing_info_str;
             packing_info_to_str(packing_infos[packing_ptr], &packing_info_str);
@@ -162,7 +186,7 @@ void* packing_worker(void*) {
 }
 
 bool check_current_packing(int data_size) {
-    std::cout << "[check_current_packing] Item count: " << packing_infos[packing_end].item_cnt << ", Data size: "
+    std::cerr << "[check_current_packing] Item count: " << packing_infos[packing_end].item_cnt << ", Data size: "
               << packing_infos[packing_end].data_size << "\n"
               << std::flush;
     return packing_infos[packing_end].item_cnt + 1 < MAX_PACKING_ITEM_CNT && packing_infos[packing_end].data_size + data_size < PACKING_BLOCK_SIZE;
@@ -178,13 +202,13 @@ void invalidate_key_in_packing(char* key) {
 }
 
 void add_data_to_packing(char* key, char* data, int data_size) {
-    std::cout << "[add_data_to_packing] Start" << std::endl;
+    std::cerr << "[add_data_to_packing] Start" << std::endl;
     strncpy(&packing_buffers[packing_end][packing_buffer_offset], data, data_size);
     packing_buffer_offset += data_size;
-    std::cout << "[add_data_to_packing] Added data to buffer" << std::endl;
+    std::cerr << "[add_data_to_packing] Added data to buffer" << std::endl;
 
     invalidate_key_in_packing(key);
-    std::cout << "[add_data_to_packing] Checked the redundancy within the same buffer" << std::endl;
+    std::cerr << "[add_data_to_packing] Checked the redundancy within the same buffer" << std::endl;
     int idx = packing_infos[packing_end].item_cnt;
     size_t key_len = strlen(key);
     strncpy(packing_infos[packing_end].keys[idx], key, key_len);
@@ -197,7 +221,7 @@ void add_data_to_packing(char* key, char* data, int data_size) {
 }
 
 void update_packing_buffer() {
-    std::cout << "[update_packing_buffer]"
+    std::cerr << "[update_packing_buffer]"
               << "\n"
               << std::flush;
     packing_end = (packing_end + 1) % PACKING_BUFFER_CNT;
@@ -210,7 +234,7 @@ void update_packing_buffer() {
  */
 
 void aws_deinit_osc() {
-    std::cout << "[aws_deinit_osc] End OSC" << std::endl;
+    std::cerr << "[aws_deinit_osc] End OSC" << std::endl;
     free(aws_s3_client_cache);
     packing_thread_flag = 0;
     pthread_join(packing_thread, NULL);
@@ -218,12 +242,13 @@ void aws_deinit_osc() {
 }
 
 void aws_init_datalake() {
-    std::cout << "[aws_init_datalake] Create DATALAKE bucket: " << DATALAKE_BUCKET_NAME << "\n"
+    std::cerr << "[aws_init_datalake] Create DATALAKE bucket: " << DATALAKE_BUCKET_NAME << "\n"
               << std::flush;
     Aws::Auth::AWSCredentials credentials;
     credentials.SetAWSAccessKeyId(std::getenv("AWS_ACCESS_KEY_ID"));
     credentials.SetAWSSecretKey(std::getenv("AWS_SECRET_ACCESS_KEY"));
     Aws::Client::ClientConfiguration configurations;
+    configurations.region = "us-east-1";
     aws_s3_client_dl = new Aws::S3::S3Client(credentials, configurations);
 
     Aws::S3::Model::CreateBucketRequest request;
@@ -231,10 +256,10 @@ void aws_init_datalake() {
     Aws::S3::Model::CreateBucketOutcome outcome = aws_s3_client_dl->CreateBucket(request);
     if (!outcome.IsSuccess()) {
         auto err = outcome.GetError();
-        std::cout << "Error: CreateDatalakeBucket: " << err.GetExceptionName() << ": " << err.GetMessage() << std::endl;
+        std::cerr << "Error: CreateDatalakeBucket: " << err.GetExceptionName() << ": " << err.GetMessage() << std::endl;
         exit(EXIT_FAILURE);
     } else {
-        std::cout << "Created bucket " << DATALAKE_BUCKET_NAME << " in the specified AWS Region." << std::endl;
+        std::cerr << "Created bucket " << DATALAKE_BUCKET_NAME << " in the specified AWS Region." << std::endl;
     }
 }
 
@@ -243,31 +268,31 @@ void aws_deinit_datalake() {
 }
 
 void aws_deinit_sdk() {
-    std::cout << "[aws_deinit_sdk] Deinitialize AWS SDK c++\n"
+    std::cerr << "[aws_deinit_sdk] Deinitialize AWS SDK c++\n"
               << std::flush;
     Aws::ShutdownAPI(sdk_options);
 }
 
 void aws_get_bucket_list() {
-    std::cout << "[aws_get_bucket_list] Start\n"
+    std::cerr << "[aws_get_bucket_list] Start\n"
               << std::flush;
 
     auto outcome = aws_s3_client_cache->ListBuckets();
     if (outcome.IsSuccess()) {
-        std::cout << "Found " << outcome.GetResult().GetBuckets().size() << " buckets\n"
+        std::cerr << "Found " << outcome.GetResult().GetBuckets().size() << " buckets\n"
                   << std::flush;
         for (auto&& b : outcome.GetResult().GetBuckets()) {
-            std::cout << b.GetName() << std::endl
+            std::cerr << b.GetName() << std::endl
                       << std::flush;
         }
     } else {
-        std::cout << "Failed with error: " << outcome.GetError() << std::endl
+        std::cerr << "Failed with error: " << outcome.GetError() << std::endl
                   << std::flush;
     }
 }
 
 void aws_get_data_from_osc(char* object_name, int offset, int size, char* data, int buffer_size) {
-    std::cout << "[aws_get_data_from_osc] Start\n"
+    std::cerr << "[aws_get_data_from_osc] Start\n"
               << std::flush;
     Aws::S3::Model::GetObjectRequest request;
     request.SetBucket(CACHE_BUCKET_NAME);
@@ -279,23 +304,19 @@ void aws_get_data_from_osc(char* object_name, int offset, int size, char* data, 
         std::stringstream ss;
         ss << outcome.GetResult().GetBody().rdbuf();
         snprintf(data, (size_t)buffer_size, "%s", ss.str().c_str());
-        std::cout << "Size retrieved from S3: " << n << " bytes\n"
-                  << std::flush;
-        std::cout << "Retrieved data from S3: " << ss.str() << "\n"
-                  << std::flush;
     } else {
         auto err = outcome.GetError();
-        std::cout << "ERROR: GetObject: " << err.GetExceptionName() << ": " << err.GetMessage() << std::endl;
+        std::cerr << "ERROR: GetObject: " << err.GetExceptionName() << ": " << err.GetMessage() << std::endl;
         exit(EXIT_FAILURE);
     }
 }
 
 void aws_put_data_to_osc(char* key, char* data, int data_size) {
-    std::cout << "[aws_put_data_to_osc] Key: " << key << "\n"
+    std::cerr << "[aws_put_data_to_osc] Key: " << key << "\n"
               << std::flush;
-    std::cout << "[aws_put_data_to_osc] Data size: " << data_size << "\n"
+    std::cerr << "[aws_put_data_to_osc] Data size: " << data_size << "\n"
               << std::flush;
-    // std::cout << "[aws_put_data_to_osc] Data: " << data << "\n" << std::flush;
+    // std::cerr << "[aws_put_data_to_osc] Data: " << data << "\n" << std::flush;
     Aws::S3::Model::PutObjectRequest request;
     request.SetBucket(CACHE_BUCKET_NAME);
     request.SetKey(key);
@@ -307,7 +328,7 @@ void aws_put_data_to_osc(char* key, char* data, int data_size) {
         std::cerr << "Error: PutObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
                   << std::flush;
     } else {
-        std::cout << "Success: Object '" << key << "' uploaded to bucket '" << CACHE_BUCKET_NAME << "'.\n"
+        std::cerr << "Success: Object '" << key << "' uploaded to bucket '" << CACHE_BUCKET_NAME << "'.\n"
                   << std::flush;
     }
 }
@@ -324,22 +345,22 @@ void aws_put_data_to_datalake(char* key, char* data, int data_size) {
         std::cerr << "Error: PutObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
                   << std::flush;
     } else {
-        std::cout << "Success: Object '" << key << "' uploaded to bucket '" << DATALAKE_BUCKET_NAME << "'.\n"
+        std::cerr << "Success: Object '" << key << "' uploaded to bucket '" << DATALAKE_BUCKET_NAME << "'.\n"
                   << std::flush;
     }
 }
 
 void aws_put_data_to_osc_packing(char* key, char* data, int data_size) {
-    std::cout << "[aws_put_data_to_osc_packing] Key: " << key << "\n"
+    std::cerr << "[aws_put_data_to_osc_packing] Key: " << key << "\n"
               << std::flush;
     if (data_size >= PACKING_BLOCK_SIZE) {  // save the data to OSC right now, instead of adding to the packing buffer
         char* packing_id = new char[MAX_PACKING_ID_LEN];
         get_next_packing_id(&packing_id);
-        std::cout << "[aws_put_data_to_osc_packing] new packing id: " << packing_id << "\n"
+        std::cerr << "[aws_put_data_to_osc_packing] new packing id: " << packing_id << "\n"
                   << std::flush;
         struct packing_info p_info;
         size_t key_len = strlen(key);
-        std::cout << "Key length: " << key_len << "\n"
+        std::cerr << "Key length: " << key_len << "\n"
                   << std::flush;
         p_info.keys[0] = new char[MACARON_MAX_KEY_LEN + 1];
         strncpy(p_info.keys[0], key, key_len);
@@ -352,7 +373,7 @@ void aws_put_data_to_osc_packing(char* key, char* data, int data_size) {
         char* packing_info_str;
         packing_info_to_str(p_info, &packing_info_str);
         oscm_put_metadata(packing_id, packing_info_str);
-        std::cout << "[aws_put_data_to_osc_packing] Metadata in string: " << packing_info_str << "\n"
+        std::cerr << "[aws_put_data_to_osc_packing] Metadata in string: " << packing_info_str << "\n"
                   << std::flush;
         free(p_info.keys[0]);
         free(packing_info_str);
@@ -373,8 +394,8 @@ void aws_delete_data_from_osc(char* key) {
         invalidate_key_in_packing(key);
     }
     oscm_delete_metadata(key);
-    /** Because it's packing, don't send delete operation to OSC 
-     * 
+    /** Because it's packing, don't send delete operation to OSC
+     *
      *  Aws::S3::Model::DeleteObjectRequest request;
      *  request.WithBucket(CACHE_BUCKET_NAME).WithKey(key);
      *  Aws::S3::Model::DeleteObjectOutcome outcome = aws_s3_client_cache->DeleteObject(request);
@@ -382,14 +403,14 @@ void aws_delete_data_from_osc(char* key) {
      *      std::cerr << "Error: DeleteObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
      *                << std::flush;
      *  } else {
-     *      std::cout << "Success: Object '" << key << "' is deleted from bucket '" << CACHE_BUCKET_NAME << "'.\n"
+     *      std::cerr << "Success: Object '" << key << "' is deleted from bucket '" << CACHE_BUCKET_NAME << "'.\n"
      *                << std::flush;
      *  }
      */
 }
 
 void aws_delete_data_from_datalake(char* key) {
-    std::cout << "[aws_delete_data_from_datalake] Key: " << key << "\n"
+    std::cerr << "[aws_delete_data_from_datalake] Key: " << key << "\n"
               << std::flush;
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(DATALAKE_BUCKET_NAME).WithKey(key);
@@ -398,13 +419,13 @@ void aws_delete_data_from_datalake(char* key) {
         std::cerr << "Error: DeleteObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
                   << std::flush;
     } else {
-        std::cout << "Success: Object '" << key << "' is deleted from bucket '" << DATALAKE_BUCKET_NAME << "'.\n"
+        std::cerr << "Success: Object '" << key << "' is deleted from bucket '" << DATALAKE_BUCKET_NAME << "'.\n"
                   << std::flush;
     }
 }
 
 int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len, int* data_offset, int* data_size) {
-    std::cout << "[aws_get_data_from_datalake] Start key: " << key << std::endl;
+    std::cerr << "[aws_get_data_from_datalake] Start key: " << key << std::endl;
     Aws::S3::Model::GetObjectRequest request;
     request.SetBucket(DATALAKE_BUCKET_NAME);
     request.SetKey(key);
@@ -435,11 +456,11 @@ int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len, int*
         (*new_msg)[offset + 1] = '\n';
         offset += 2;
         assert(offset == *new_msg_len);
-        std::cout << "[aws_get_data_from_datalake] Size retrieved from S3: " << n << " bytes\n"
+        std::cerr << "[aws_get_data_from_datalake] Size retrieved from S3: " << n << " bytes\n"
                   << std::flush;
         return 1;
     } else {
-        std::cout << "[aws_get_data_from_datalake] No such data for the key: " << key << std::endl;
+        std::cerr << "[aws_get_data_from_datalake] No such data for the key: " << key << std::endl;
         return 0;
     }
 }
