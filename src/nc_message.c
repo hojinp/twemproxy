@@ -28,7 +28,8 @@
 #include <sys/uio.h>
 
 #if (IOV_MAX > 128)
-#define NC_IOV_MAX 128
+//#define NC_IOV_MAX 128
+#define NC_IOV_MAX 1024
 #else
 #define NC_IOV_MAX IOV_MAX
 #endif
@@ -912,7 +913,6 @@ try_get_data_from_osc(struct context *ctx, struct conn *conn, struct msg *msg) {
         new_msg[offset + 1] = '\n';
         offset += 2;
         ASSERT(offset == new_msg_len);
-        loga("new_msg:\n%.*s", new_msg_len, new_msg);
         new_elapsed_time = get_elapsed_time(msg);
         osc_latency = new_elapsed_time - curr_elapsed_time;
         curr_elapsed_time = new_elapsed_time;
