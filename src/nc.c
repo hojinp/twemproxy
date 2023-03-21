@@ -69,9 +69,10 @@ static const struct option long_options[] = {
     {"pid-file", required_argument, NULL, 'p'},
     {"mbuf-size", required_argument, NULL, 'm'},
     {"proxy-name", required_argument, NULL, 'n'},
+    {"macaron-oscm-ip", required_argument, NULL, 'q'},
     {NULL, 0, NULL, 0}};
 
-static const char short_options[] = "hVtdDv:o:c:s:i:a:p:m:n:";
+static const char short_options[] = "hVtdDv:o:c:s:i:a:p:m:n:q:";
 
 static rstatus_t
 nc_daemonize(int dump_core) {
@@ -409,6 +410,10 @@ nc_get_options(int argc, char **argv, struct instance *nci) {
                 init_macaron_proxy_name(optarg);
                 break;
 
+            case 'q':
+                init_macaron_oscm_ip(optarg);
+                break;
+
             case '?':
                 switch (optopt) {
                     case 'o':
@@ -537,6 +542,7 @@ void macaron_deinit() {
     aws_deinit_datalake();
     aws_deinit_sdk();
     deinit_macaron_proxy_name();
+    deinit_macaron_oscm_ip();
     record_deinit();
 }
 

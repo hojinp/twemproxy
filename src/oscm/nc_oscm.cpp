@@ -6,6 +6,7 @@
 
 #include <iostream>
 
+#include "../macaron/macaron.h"
 #include "oscm_server_client.h"
 
 #ifdef __cplusplus
@@ -17,7 +18,8 @@ OSCMServerClient* oscm_server_client;
 void oscm_init_lib() {
     std::cout << "Initialize OSCM library\n"
               << std::flush;
-    oscm_server_client = new OSCMServerClient(grpc::CreateChannel("localhost:50051", grpc::InsecureChannelCredentials()));
+    std::string oscm_ip = std::string(get_macaron_oscm_ip()) + ":50051";
+    oscm_server_client = new OSCMServerClient(grpc::CreateChannel(oscm_ip, grpc::InsecureChannelCredentials()));
 }
 
 void oscm_deinit_lib() {
