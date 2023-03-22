@@ -6,8 +6,8 @@
 #include <aws/s3/model/CreateBucketRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
-#include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/HeadBucketRequest.h>
+#include <aws/s3/model/PutObjectRequest.h>
 #include <math.h>
 #include <nc_core.h>
 #include <pthread.h>
@@ -24,7 +24,6 @@ extern "C" {
 #endif
 
 #define CACHE_BUCKET_NAME "macaron-osc"
-#define DATALAKE_BUCKET_NAME "macaron-datalake"
 
 Aws::SDKOptions sdk_options;
 
@@ -243,25 +242,25 @@ void aws_deinit_osc() {
 }
 
 void aws_init_datalake() {
-    std::cerr << "[aws_init_datalake] Create DATALAKE bucket: " << DATALAKE_BUCKET_NAME << "\n"
+    std::cerr << "[aws_init_datalake] Create DATALAKE bucket: " << get_datalake_bucket_name() << "\n"
               << std::flush;
     Aws::Auth::AWSCredentials credentials;
     credentials.SetAWSAccessKeyId(std::getenv("AWS_ACCESS_KEY_ID"));
     credentials.SetAWSSecretKey(std::getenv("AWS_SECRET_ACCESS_KEY"));
     Aws::Client::ClientConfiguration configurations;
-    configurations.region = "us-east-1";
+    configurations.region = get_datalake_region();
     aws_s3_client_dl = new Aws::S3::S3Client(credentials, configurations);
 
     // The DATALAKE bucket must exist
     Aws::S3::Model::HeadBucketRequest headReq;
-    headReq.WithBucket(DATALAKE_BUCKET_NAME);
+    headReq.WithBucket(get_datalake_bucket_name());
     auto outcome = aws_s3_client_dl->HeadBucket(headReq);
     if (!outcome.IsSuccess()) {
         auto err = outcome.GetError();
         std::cerr << "Error: HeadBucket: " << err.GetExceptionName() << ": " << err.GetMessage() << std::endl;
         exit(EXIT_FAILURE);
     } else {
-        std::cerr << "Bucket " << DATALAKE_BUCKET_NAME << " exists in the specified AWS Region." << std::endl;
+        std::cerr << "Bucket " << get_datalake_bucket_name() << " exists in the specified AWS Region." << std::endl;
     }
 }
 
@@ -337,7 +336,7 @@ void aws_put_data_to_osc(char* key, char* data, int data_size) {
 
 void aws_put_data_to_datalake(char* key, char* data, int data_size) {
     Aws::S3::Model::PutObjectRequest request;
-    request.SetBucket(DATALAKE_BUCKET_NAME);
+    request.SetBucket(get_datalake_bucket_name());
     request.SetKey(key);
     const std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::StringStream>("");
     *inputData << data;
@@ -347,7 +346,7 @@ void aws_put_data_to_datalake(char* key, char* data, int data_size) {
         std::cerr << "Error: PutObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
                   << std::flush;
     } else {
-        std::cerr << "Success: Object '" << key << "' uploaded to bucket '" << DATALAKE_BUCKET_NAME << "'.\n"
+        std::cerr << "Success: Object '" << key << "' uploaded to bucket '" << get_datalake_bucket_name() << "'.\n"
                   << std::flush;
     }
 }
@@ -415,13 +414,13 @@ void aws_delete_data_from_datalake(char* key) {
     std::cerr << "[aws_delete_data_from_datalake] Key: " << key << "\n"
               << std::flush;
     Aws::S3::Model::DeleteObjectRequest request;
-    request.WithBucket(DATALAKE_BUCKET_NAME).WithKey(key);
+    request.WithBucket(get_datalake_bucket_name()).WithKey(key);
     Aws::S3::Model::DeleteObjectOutcome outcome = aws_s3_client_dl->DeleteObject(request);
     if (!outcome.IsSuccess()) {
         std::cerr << "Error: DeleteObjectBuffer: " << outcome.GetError().GetMessage() << "\n"
                   << std::flush;
     } else {
-        std::cerr << "Success: Object '" << key << "' is deleted from bucket '" << DATALAKE_BUCKET_NAME << "'.\n"
+        std::cerr << "Success: Object '" << key << "' is deleted from bucket '" << get_datalake_bucket_name() << "'.\n"
                   << std::flush;
     }
 }
@@ -429,7 +428,7 @@ void aws_delete_data_from_datalake(char* key) {
 int aws_get_data_from_datalake(char* key, char** new_msg, int* new_msg_len, int* data_offset, int* data_size) {
     std::cerr << "[aws_get_data_from_datalake] Start key: " << key << std::endl;
     Aws::S3::Model::GetObjectRequest request;
-    request.SetBucket(DATALAKE_BUCKET_NAME);
+    request.SetBucket(get_datalake_bucket_name());
     request.SetKey(key);
     Aws::S3::Model::GetObjectOutcome outcome = aws_s3_client_dl->GetObject(request);
     if (outcome.IsSuccess()) {

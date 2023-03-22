@@ -18,11 +18,14 @@ char *get_macaron_oscm_ip();
 void deinit_macaron_oscm_ip();
 
 extern char *datalake_region;
-extern int datalake_region_initalized = 0;
 void init_datalake_region(const char *region);
 char *get_datalake_region();
 void deinit_datalake_region();
-int get_datalake_region_initialized();
+
+extern char *datalake_bucket_name;
+void init_datalake_bucket_name(const char *name);
+char *get_datalake_bucket_name();
+void deinit_datalake_bucket_name();
 
 #ifdef __cplusplus
 }

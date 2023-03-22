@@ -71,9 +71,10 @@ static const struct option long_options[] = {
     {"proxy-name", required_argument, NULL, 'n'},
     {"macaron-oscm-ip", required_argument, NULL, 'q'},
     {"datalake-region", required_argument, NULL, 'l'},
+    {"datalake-bucket-name", required_argument, NULL, 'b'},
     {NULL, 0, NULL, 0}};
 
-static const char short_options[] = "hVtdDv:o:c:s:i:a:p:m:n:q:l";
+static const char short_options[] = "hVtdDv:o:c:s:i:a:p:m:n:q:l:b:";
 
 static rstatus_t
 nc_daemonize(int dump_core) {
@@ -418,6 +419,10 @@ nc_get_options(int argc, char **argv, struct instance *nci) {
             case 'l':
                 init_datalake_region(optarg);
                 break;
+            
+            case 'b':
+                init_datalake_bucket_name(optarg);
+                break;
 
             case '?':
                 switch (optopt) {
@@ -450,10 +455,6 @@ nc_get_options(int argc, char **argv, struct instance *nci) {
                 return NC_ERROR;
         }
     }
-    if (!get_datalake_region_initialized()) {
-        init_datalake_region("us-east-1");
-    }
-
     return NC_OK;
 }
 

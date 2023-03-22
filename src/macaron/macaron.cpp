@@ -12,7 +12,7 @@ extern "C" {
 char *macaron_proxy_name;
 char *macaron_oscm_ip;
 char *datalake_region;
-int datalake_region_initalized;
+char *datalake_bucket_name;
 
 void init_macaron_proxy_name(const char *name) {
     macaron_proxy_name = (char *)malloc(strlen(name) + 1);
@@ -48,7 +48,6 @@ void init_datalake_region(const char *region) {
     datalake_region = (char *)malloc(strlen(region) + 1);
     strncpy(datalake_region, region, strlen(region));
     datalake_region[strlen(region)] = '\0';
-    datalake_region_initalized = 1;
 }
 
 char *get_datalake_region() {
@@ -60,8 +59,19 @@ void deinit_datalake_region() {
     free(datalake_region);
 }
 
-int get_datalake_region_initialized() {
-    return datalake_region_initalized;
+void init_datalake_bucket_name(const char *name) {
+    datalake_bucket_name = (char *)malloc(strlen(name) + 1);
+    strncpy(datalake_bucket_name, name, strlen(name));
+    datalake_bucket_name[strlen(name)] = '\0';
+}
+
+char *get_datalake_bucket_name() {
+    assert(datalake_bucket_name != NULL);
+    return datalake_bucket_name;
+}
+
+void deinit_datalake_bucket_name() {
+    free(datalake_bucket_name);
 }
 
 #ifdef __cplusplus

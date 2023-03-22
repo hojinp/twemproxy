@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define PACKING_BLOCK_SIZE 4 * 1024 * 1024                                          // XXX: Pakcing block size: 4 MB (manual)
+#define PACKING_BLOCK_SIZE 16 * 1024 * 1024                                         // XXX: Pakcing block size: 16 MB (manual)
 #define MAX_PACKING_INFO_STR_LEN (40 + MACARON_MAX_KEY_LEN) * MAX_PACKING_ITEM_CNT  // max number of chars for the packing information
 #define PACKING_BUFFER_CNT 100                                                      // how many number of packings can be pending
 #define MAX_PACKING_ID_LEN 50                                                       // max number of chars for each packing id
