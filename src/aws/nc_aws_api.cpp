@@ -11,6 +11,8 @@
 #include <math.h>
 #include <nc_core.h>
 #include <pthread.h>
+#include <stdio.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 
 #include <chrono>
@@ -95,6 +97,9 @@ void aws_init_osc() {
         std::cerr << "Created bucket " << CACHE_BUCKET_NAME << " in the specified AWS Region." << std::endl;
     }
 
+    // Init OSC Packing flush filename
+    init_macaron_osc_flush_file();
+
     // Start the OSC packing background thread
     int ret = pthread_create(&packing_thread, NULL, &packing_worker, NULL);
     if (ret != 0) {
@@ -107,6 +112,22 @@ void aws_init_osc() {
 /**
  *  Packing related start
  */
+
+char* macaron_osc_flush_file;
+void init_macaron_osc_flush_file() {
+    macaron_osc_flush_file = (char*)malloc(200 * sizeof(char));
+    size_t total_len = strlen(FLUSH_PACKING_FILE) + strlen(get_macaron_proxy_name()) + 2;
+    snprintf(macaron_osc_flush_file, total_len, "%s-%s", FLUSH_PACKING_FILE, get_macaron_proxy_name());
+    macaron_osc_flush_file[total_len] = '\0';
+    std::cout << "macaron_osc_flush_file_name: " << macaron_osc_flush_file << std::endl;
+}
+
+char* get_macaron_osc_flush_file() {
+    return macaron_osc_flush_file;
+}
+void deinit_macaron_osc_flush_file() {
+    free(macaron_osc_flush_file);
+}
 
 void get_next_packing_id(char** packing_id) {
     std::lock_guard<std::mutex> lk(packing_idx_mutex);
@@ -161,6 +182,7 @@ void* packing_worker(void*) {
             std::cerr << "[packing_worker] Packing ID: " << packing_ids[packing_ptr] << std::endl;
             std::cerr << "[packing_worker] Packing buffer size: " << packing_infos[packing_ptr].data_size << std::endl;
             aws_put_data_to_osc(packing_ids[packing_ptr], packing_buffers[packing_ptr], packing_infos[packing_ptr].data_size);
+
             char* packing_info_str;
             packing_info_to_str(packing_infos[packing_ptr], &packing_info_str);
             oscm_put_metadata(packing_ids[packing_ptr], packing_info_str);
@@ -170,6 +192,27 @@ void* packing_worker(void*) {
             packing_infos[packing_ptr].data_size = 0;
             packing_infos[packing_ptr].item_cnt = 0;
             packing_ptr = (packing_ptr + 1) % PACKING_BUFFER_CNT;
+        }
+        if (flush_packing()) {  // XXX: Flush is not safe. Use flush only when you know that no other requests comes in for a while
+            std::lock_guard<std::mutex> lk(packing_mutex);
+            update_packing_buffer();
+
+            std::cerr << "[packing_worker] Flush the current packing ptr" << std::endl;
+            std::cerr << "[packing_worker] Packing ID: " << packing_ids[packing_ptr] << std::endl;
+            std::cerr << "[packing_worker] Packing buffer size: " << packing_infos[packing_ptr].data_size << std::endl;
+            if (packing_infos[packing_ptr].item_cnt != 0) {
+                aws_put_data_to_osc(packing_ids[packing_ptr], packing_buffers[packing_ptr], packing_infos[packing_ptr].data_size);
+
+                char* packing_info_str;
+                packing_info_to_str(packing_infos[packing_ptr], &packing_info_str);
+                oscm_put_metadata(packing_ids[packing_ptr], packing_info_str);
+                free(packing_info_str);
+
+                packing_infos[packing_ptr].data_size = 0;
+                packing_infos[packing_ptr].item_cnt = 0;
+            }
+            packing_ptr = (packing_ptr + 1) % PACKING_BUFFER_CNT;
+            disable_flush_packing();
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(time_interval));
     }
@@ -181,8 +224,19 @@ void* packing_worker(void*) {
     free(packing_ids);
     free(packing_buffers);
     free(packing_infos);
+    deinit_macaron_osc_flush_file();
 
     return NULL;
+}
+
+/* If FLUSH_PACKING_FILE exists, flush is set. Else, flush is disabled. */
+int flush_packing() {
+    struct stat buffer;
+    return (stat(get_macaron_osc_flush_file(), &buffer) == 0) ? 1 : 0;
+}
+
+void disable_flush_packing() {
+    remove(get_macaron_osc_flush_file());
 }
 
 bool check_current_packing(int data_size) {
@@ -390,10 +444,7 @@ void aws_put_data_to_osc_packing(char* key, char* data, int data_size) {
 }
 
 void aws_delete_data_from_osc(char* key) {
-    {
-        std::lock_guard<std::mutex> lk(packing_mutex);
-        invalidate_key_in_packing(key);
-    }
+    invalidate_key_in_packing(key);
     oscm_delete_metadata(key);
     /** Because it's packing, don't send delete operation to OSC
      *
