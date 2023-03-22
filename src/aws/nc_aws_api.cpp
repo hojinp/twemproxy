@@ -7,6 +7,7 @@
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/HeadBucketRequest.h>
 #include <math.h>
 #include <nc_core.h>
 #include <pthread.h>
@@ -251,15 +252,16 @@ void aws_init_datalake() {
     configurations.region = "us-east-1";
     aws_s3_client_dl = new Aws::S3::S3Client(credentials, configurations);
 
-    Aws::S3::Model::CreateBucketRequest request;
-    request.SetBucket(DATALAKE_BUCKET_NAME);
-    Aws::S3::Model::CreateBucketOutcome outcome = aws_s3_client_dl->CreateBucket(request);
+    // The DATALAKE bucket must exist
+    Aws::S3::Model::HeadBucketRequest headReq;
+    headReq.WithBucket(DATALAKE_BUCKET_NAME);
+    auto outcome = aws_s3_client_dl->HeadBucket(headReq);
     if (!outcome.IsSuccess()) {
         auto err = outcome.GetError();
-        std::cerr << "Error: CreateDatalakeBucket: " << err.GetExceptionName() << ": " << err.GetMessage() << std::endl;
+        std::cerr << "Error: HeadBucket: " << err.GetExceptionName() << ": " << err.GetMessage() << std::endl;
         exit(EXIT_FAILURE);
     } else {
-        std::cerr << "Created bucket " << DATALAKE_BUCKET_NAME << " in the specified AWS Region." << std::endl;
+        std::cerr << "Bucket " << DATALAKE_BUCKET_NAME << " exists in the specified AWS Region." << std::endl;
     }
 }
 

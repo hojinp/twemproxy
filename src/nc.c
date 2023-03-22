@@ -70,9 +70,10 @@ static const struct option long_options[] = {
     {"mbuf-size", required_argument, NULL, 'm'},
     {"proxy-name", required_argument, NULL, 'n'},
     {"macaron-oscm-ip", required_argument, NULL, 'q'},
+    {"datalake-region", required_argument, NULL, 'l'},
     {NULL, 0, NULL, 0}};
 
-static const char short_options[] = "hVtdDv:o:c:s:i:a:p:m:n:q:";
+static const char short_options[] = "hVtdDv:o:c:s:i:a:p:m:n:q:l";
 
 static rstatus_t
 nc_daemonize(int dump_core) {
@@ -414,6 +415,10 @@ nc_get_options(int argc, char **argv, struct instance *nci) {
                 init_macaron_oscm_ip(optarg);
                 break;
 
+            case 'l':
+                init_datalake_region(optarg);
+                break;
+
             case '?':
                 switch (optopt) {
                     case 'o':
@@ -444,6 +449,9 @@ nc_get_options(int argc, char **argv, struct instance *nci) {
                 log_stderr("nutcracker: invalid option -- '%c'", optopt);
                 return NC_ERROR;
         }
+    }
+    if (!get_datalake_region_initialized()) {
+        init_datalake_region("us-east-1");
     }
 
     return NC_OK;
@@ -543,6 +551,7 @@ void macaron_deinit() {
     aws_deinit_sdk();
     deinit_macaron_proxy_name();
     deinit_macaron_oscm_ip();
+    deinit_datalake_region();
     record_deinit();
 }
 

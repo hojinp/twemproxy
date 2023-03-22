@@ -576,7 +576,7 @@ delete_data_from_osc_datalake(void *arg) {
     char *key = nc_alloc(sizeof(char) * key_len + 1);
     strncpy(key, key_ptr, key_len);
     key[key_len] = '\0';
-    loga("[put_data_to_osc_datalake] key: %s, key_len: %d", key, key_len);
+    loga("[delete_data_from_osc_datalake] key: %s, key_len: %d", key, key_len);
 
     aws_delete_data_from_osc(key);
     aws_delete_data_from_datalake(key);
@@ -598,8 +598,7 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg) {
         ASSERT(msg->redis); /* We implemented Macaron for only Redis */
         struct mbuf *xbuf, *nbuf;
         xbuf = STAILQ_FIRST(&msg->mhdr);
-        uint8_t *m = (uint8_t *)xbuf->start + 8;
-        if (str3icmp(m, 's', 'e', 't') || str3icmp(m, 'd', 'e', 'l')) {
+        if (msg->type == 63 || msg->type == 29) { /* Get: 50, Del: 29, Set: 63 */
             size_t mlen;
             char *copied_msg = (char *)nc_alloc(sizeof(char) * msg->mlen + 1);
             copied_msg[msg->mlen] = '\0';
@@ -614,15 +613,10 @@ req_forward(struct context *ctx, struct conn *c_conn, struct msg *msg) {
                 offset += mlen;
             }
 
-            xbuf = STAILQ_FIRST(&msg->mhdr);
-            //pthread_t thread_id;
-            //int ret;
-            if (str3icmp(m, 's', 'e', 't')) {
+            if (msg->type == 63) {
                 put_data_to_osc_datalake(copied_msg);
-                //ret = pthread_create(&thread_id, NULL, put_data_to_osc_datalake, copied_msg);
-            } else if (str3icmp(m, 'd', 'e', 'l')) {
+            } else if (msg->type == 29) {
                 delete_data_from_osc_datalake(copied_msg);
-                //ret = pthread_create(&thread_id, NULL, delete_data_from_osc_datalake, copied_msg);
             } else { // Unexpected type of request
                 ASSERT(false);
             }

@@ -17,6 +17,13 @@ void init_macaron_oscm_ip(const char *ip);
 char *get_macaron_oscm_ip();
 void deinit_macaron_oscm_ip();
 
+extern char *datalake_region;
+extern int datalake_region_initalized = 0;
+void init_datalake_region(const char *region);
+char *get_datalake_region();
+void deinit_datalake_region();
+int get_datalake_region_initialized();
+
 #ifdef __cplusplus
 }
 #endif
